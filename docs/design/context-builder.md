@@ -29,6 +29,16 @@ Request N+1
 
 Correctness and relevance take precedence over cache hit rate. A required compaction or an accepted revision change may establish a new prefix; routine model calls must not do so accidentally.
 
+### System Prompt, AGENTS.md, and Tools
+
+The top-level request shape is `tools[] + system + messages[]`. The former `stable / context / volatile` System Prompt tiering is removed.
+
+System Prompt is a small runtime-owned contract for action, verification, trust, and harness usage. It does not contain the evolving persona, recent tasks, Wiki snapshots, WorkingContext, budget balances, dynamic request IDs, or per-call timestamps. Tool-specific arguments belong in Tool schemas rather than a central Prompt manual.
+
+`AgentWiki/AGENTS.md` maintains the Agent's evolving role, personality, and interaction style. Its snapshot is injected as a separate runtime context message in the first request of a Session, not compiled into System Prompt. Skill metadata is likewise bootstrap context rather than part of the runtime-owned System Prompt; Skill bodies load on demand as Tool Results. Wiki content is retrieved on demand with `grep → read`, not injected as a default recent-task snapshot.
+
+Tools use a small static catalog with clear semantics. The runtime resolves Session, workspace, credentials, defaults, validation, retries, resource ownership, large-output assets, and error normalization so the model does not repeat those details. There is no universal `execute(action, payload)` Tool and no Tool Search in the baseline. An MCP adapter and allowlist configuration are reserved, but MCP is disabled and contributes no schemas by default.
+
 ### WorkingContext is append-versioned
 
 WorkingContext is a short, user-level self-reminder maintained by the Agent during execution. It is not long-term Wiki memory, a permission channel, or the proactive mechanism itself.
@@ -53,9 +63,9 @@ That behavior is not implemented by WorkingContext or ContextBuilder alone. Task
 
 ## Remaining M5 decisions
 
-### 1. Request structure and system tiers
+### 1. System Prompt wording and Tool Catalog
 
-Define the final `tools / system / messages` contract and the contents and ordering of `stable / context / volatile` system tiers, including Skill index and Session/runtime information.
+Finalize the concise runtime-owned System Prompt text, the concrete static Tool Catalog, and each Tool's schema and description. The top-level `tools[] + system + messages[]` shape, independent `AGENTS.md` bootstrap, removal of System Prompt tiers, and absence of baseline Tool Search are accepted.
 
 ### 2. WorkingContext concrete contract
 

@@ -156,39 +156,42 @@ Screenshots and other large observations are stored as assets and referenced fro
 
 ## 4. AgentWiki
 
-The directory structure is:
+The accepted structure is:
 
 ```text
 AgentWiki/
+  AGENTS.md
   wiki/
-    INDEX.md
+    INDEX.md          # generated for maintenance, not required by the model
+    inbox/
     projects/
+    concepts/
+    people/
     playbooks/
     profiles/
-    inbox/
+    references/
   skills/
 ```
 
-The root provides shared Git versioning and synchronization. Two mechanisms remain separate:
+The root provides shared Git versioning and synchronization. Wiki is the only long-term knowledge source; there is no separate Memory service or automatic Recall Subagent. Wiki and Trajectory remain distinct: Wiki stores curated knowledge, while Trajectory records execution facts. Raw Trajectory is not automatically promoted into Wiki.
 
-- `WikiMemory`: long-term knowledge and SOP;
-- `SkillLoader`: progressive-disclosure Skill loading.
+`AGENTS.md` contains the Agent's evolving role, personality, and interaction style. It is maintained independently from the runtime-owned System Prompt and injected as a separate runtime context message at Session bootstrap.
 
-### Wiki consumption is deliberately open
+### Wiki consumption
 
-Only the existence of one Wiki for knowledge and SOP is decided. The detailed consumption model is reserved for **M3: Deep Dive AgentWiki Consumption**.
+The baseline is [agentwiki.md](../design/agentwiki.md): shallow dynamic categories, self-describing Markdown headers, `grep → read` retrieval, bounded `ls` for write-time discovery, and structural write validation. There is no mandatory `list`, semantic Recall service, vector index, or per-entry INDEX.
 
-The earlier `INDEX + search/read` idea is a candidate, not a committed design. Full injection, on-demand retrieval, automatic recall, and hybrid approaches remain open for that discussion.
+Each entry owns its `id`, `kind`, `state`, `summary`, `keys`, and optional `related`, `verified`, and `replaced_by` metadata. Relations use stable IDs rather than paths. Lifecycle states are `draft`, `active`, and `superseded`.
 
-Trajectory is not automatically exported, promoted to Wiki, or used for automatic RSI. WorkingContext is Session state, not Wiki memory.
+`wiki/INDEX.md` is generated from entry headers by maintenance. It is excluded from normal Wiki grep and is never required for reads, writes, or immediate retrieval. It exists for global inventory and long-term maintenance, not as a model bootstrap dependency.
 
 ### Skills follow progressive disclosure
 
 Skills use standard `SKILL.md` packages with metadata and optional scripts, references, and assets.
 
-The Agent receives a small, stable index of names, descriptions, paths, and content hashes. When a task matches, the Agent calls a Skill-loading tool and receives the full instructions as a tool result. Supporting files are read on demand rather than injected with the index.
+The Agent receives a small, stable index of names, descriptions, paths, and content hashes separately from the runtime-owned System Prompt. When a task matches, the Agent calls a Skill-loading tool and receives the full instructions as a tool result. Supporting files are read on demand rather than injected with the index.
 
-The current Turn keeps a stable Skill index; a later Turn may load a new version. There is one Wiki-backed Skill source rather than a hierarchy of overlapping sources.
+The current Turn keeps a stable Skill index; a later Turn may load a new version. There is one Wiki-backed Skill source rather than a hierarchy of overlapping sources. `skills/wiki/SKILL.md` teaches Wiki retrieval, writing, source handling, category creation, and maintenance without duplicating that manual in System Prompt.
 
 ### Deferred agent-defined Hooks
 

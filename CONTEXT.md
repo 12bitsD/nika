@@ -6,8 +6,12 @@ This file is the project's canonical glossary. It contains domain concepts only,
 
 | Term | Definition |
 |---|---|
-| AgentWiki | The shared root for long-term Wiki content and Skills. Wiki and Skills have separate consumption mechanisms. |
-| Wiki | The long-term knowledge and SOP store. Wiki is distinct from Session history and Trajectory. Its detailed consumption model is reserved for a dedicated deep dive. |
+| AgentWiki | The shared root for `AGENTS.md`, long-term Wiki content, and Skills. Wiki and Skills have separate consumption mechanisms. |
+| AGENTS.md | The independently maintained description of the Agent's evolving role, personality, and interaction style. A snapshot enters the first request as runtime context rather than being compiled into System Prompt. |
+| Wiki | The only long-term knowledge store, with shallow dynamic categories and self-describing Markdown entries. It is distinct from Session history and Trajectory and has no separate Memory service. |
+| Wiki entry | One independently retrievable Markdown document with a stable ID, kind, lifecycle state, summary, grep keys, and optional relations and freshness metadata. |
+| Wiki INDEX | A regenerable maintenance inventory derived from entry headers. It is excluded from normal grep and is not required by model reads, writes, or retrieval. |
+| Wiki Skill | The on-demand instructions for Wiki retrieval, writing, source handling, category creation, and maintenance. |
 | Skill | Instructions that teach the Agent how to perform a kind of work. Skills are discovered through a small index and loaded on demand rather than injected in full. |
 | WorkingContext | A short, user-level self-reminder maintained by the Agent during execution. New versions and invalidation markers are appended without rewriting earlier provider-visible content; the latest active version is used, and compaction drops superseded or inactive versions. It is scoped to a Run or Session and is neither long-term Wiki memory nor the separate proactive mechanism. |
 
