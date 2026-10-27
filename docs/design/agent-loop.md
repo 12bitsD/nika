@@ -136,8 +136,8 @@ At **75%** of the model context window, the loop enters `Compacting` before that
 `Compactor` is an internal module, not a Tool:
 
 1. Deterministic cleanup removes duplicates, bounds old large outputs with asset references, removes inline binary payloads, and preserves Tool Call/Result pairing and required recent messages. There is no separate frequently running micro-compaction.
-2. An internal model request produces a structured summary of the current goal, constraints, decisions, completed work, active work and next steps, open questions, required results and assets, budget, waiting state, and latest WorkingContext.
-3. Validation requires a nonempty summary and verifies current goal, unfinished work, latest WorkingContext, Run identity, budget, waiting state, and Tool pairing.
+2. An internal model request produces a structured summary of the current goal, constraints, decisions, completed work, active work and next steps, open questions, required results and assets, budget, waiting state, and latest active WorkingContext.
+3. Validation requires a nonempty summary and verifies current goal, unfinished work, latest active WorkingContext, Run identity, budget, waiting state, and Tool pairing.
 4. An append-only compaction event records the summary and model usage. Later Conversation projections derive from this event and subsequent events; old Trajectory is never rewritten.
 
 Failed summarization or validation leaves the previous projection intact. Provider overflow may force full compaction once within the same Run; a second overflow is terminal and does not loop or use an unreviewed lossy fallback.

@@ -2,7 +2,7 @@
 
 Purpose: finish the architecture without losing decisions or the main thread. This file is the controlling plan for discussion. The [feature worklist](feature-worklist.md) tracks individual features; this roadmap controls their order and closure.
 
-Current stage: **M4 — Close AgentLoop Core Design**. No runtime implementation is authorized by this roadmap.
+Current stage: **M5 — Context, cache, and compaction**. No runtime implementation is authorized by this roadmap.
 
 ## Fixed guardrails
 
@@ -21,12 +21,13 @@ These decisions should not be reopened without an explicit change of product dir
 |---|---|---|---|---|
 | Research | M1, M2 | What do yomi, Hermes, OpenAI, and Anthropic already prove? | Primary-source notes for runtime, Trajectory, compaction, Skill, and extension mechanisms | Done |
 | Core | **M4** | What exactly happens inside AgentLoop? | State transitions, event order, Tool concurrency, cancellation, finalization, and failure paths are unambiguous in all listed scenarios | **Done** — [agent-loop.md](../design/agent-loop.md) |
-| Context | M5 | What exactly does the model see, and how is it compacted? | Deterministic ContextBuilder, revision/cache rules, 75% compaction, WorkingContext, and budget behavior are consistent with M4 | **Next**; depends on M4 |
+| Context | M5 | What exactly does the model see, and how is it compacted? | Deterministic ContextBuilder, revision/cache rules, 75% compaction, WorkingContext, and budget behavior are consistent with M4 | **In progress** — [context-builder.md](../design/context-builder.md) |
 | Resources | M6 | What can each actor and process access, and who owns each resource? | Trust/credential rules, resource ownership, locks, concurrency, and crash cleanup cover every Tool and shared resource | Pending; depends on M4 |
 | Data and channels | M7 | What is authoritative, and how do external systems observe it? | Session/event/projection schema, Trajectory/export contracts, Feishu acceptance, backup, and GC are consistent | Pending; depends on M5 and M6 |
 | Engineering | M8 | How is the design implemented and verified? | Language, package layout, dependencies, container processes, storage mounts, health checks, and CI levels are chosen | Pending; depends on M7 |
 | Special topic | **M3** | How should Wiki actually be consumed? | A dedicated comparison and decision for bootstrap, retrieval, automatic recall, writeback, cache, and compaction | Planned separately; required before M9 |
-| Closure | M9 | Is the architecture complete and implementable? | End-to-end review, no unowned big questions, synchronized docs, and a staged implementation plan | Pending; depends on M3 and M8 |
+| Special topic | Proactive | How should the Bot reduce the user's context-management burden? | A separate mechanism for task-phase detection, internal updates, user-facing distillation, authorization boundaries, and interruption policy | Planned after M5; value accepted, behavior not yet designed |
+| Closure | M9 | Is the architecture complete and implementable? | End-to-end review, no unowned big questions, synchronized docs, and a staged implementation plan | Pending; depends on M3, Proactive, and M8 |
 
 M5 and M6 may be discussed in parallel after M4 if their inputs stop changing. M7 must not be used to resolve new questions by silently changing M5 or M6; any change goes back to the owning stage and is recorded there first.
 
@@ -51,8 +52,9 @@ The output must define where Trajectory events and Session writes occur in each 
 Close only when every model request can be explained by a deterministic assembly rule:
 
 - stable prefix, Skill/Wiki revisions, Session history, WorkingContext, and current input have a defined order;
+- within a compaction boundary and fixed revisions, provider-visible content is immutable and append-only, including WorkingContext versions and invalidation markers;
 - model and Skill changes have explicit current-Run versus next-Run behavior;
-- compaction has a defined trigger, preservation set, output, failure path, and recovery;
+- compaction has a defined trigger, preservation set, output, failure path, recovery, and new cache boundary;
 - budget changes take effect at a defined point.
 
 ### M6 — Trust and resources

@@ -9,7 +9,7 @@ This file is the project's canonical glossary. It contains domain concepts only,
 | AgentWiki | The shared root for long-term Wiki content and Skills. Wiki and Skills have separate consumption mechanisms. |
 | Wiki | The long-term knowledge and SOP store. Wiki is distinct from Session history and Trajectory. Its detailed consumption model is reserved for a dedicated deep dive. |
 | Skill | Instructions that teach the Agent how to perform a kind of work. Skills are discovered through a small index and loaded on demand rather than injected in full. |
-| WorkingContext | A short, replaceable, user-level reminder maintained by the Agent during execution. It is scoped to a Run or Session and is not long-term Wiki memory. |
+| WorkingContext | A short, user-level self-reminder maintained by the Agent during execution. New versions and invalidation markers are appended without rewriting earlier provider-visible content; the latest active version is used, and compaction drops superseded or inactive versions. It is scoped to a Run or Session and is neither long-term Wiki memory nor the separate proactive mechanism. |
 
 ## Execution
 

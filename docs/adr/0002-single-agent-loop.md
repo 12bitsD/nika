@@ -233,6 +233,8 @@ A provider-specific training chat template is a later conversion from `aift/v1`,
 
 Multiple model providers and models are supported through configuration. Streaming and bounded retries are supported. Retry honors `Retry-After` where available and uses bounded exponential backoff with jitter.
 
+The evolving M5 contract is in [context-builder.md](../design/context-builder.md). Within one compaction boundary and fixed prompt revisions, provider-visible content is immutable and append-only: previous Tool definitions, system content, conversation messages, and WorkingContext versions are not rewritten. New committed content is appended to maximize prompt-cache reuse. Compaction may establish a new Conversation prefix without rewriting Trajectory.
+
 Context usage comes from provider-reported usage when available. A local estimate is only a fallback. Before every model request, AgentLoop evaluates the newly assembled request, including subsequent Tool Results, steer, WorkingContext, and Skill changes.
 
 Compaction starts at **75%** of the model context window. It never interrupts an in-flight model request or Tool action: the current response or Tool Result is saved first. Steer arriving during compaction waits until compaction completes and is injected before the next model request.
@@ -242,28 +244,34 @@ Compaction starts at **75%** of the model context window. It never interrupts an
 Compaction is an internal `Compactor` module, not a Tool in the Tool Catalog. It runs four phases:
 
 1. **Deterministic cleanup** removes duplicate Tool Results, bounds old large outputs with head/tail preservation and asset references, removes inline binary payloads, and preserves Tool Call/Result pairing plus required recent messages. There is no separate frequently running micro-compaction; this phase runs only as part of full compaction.
-2. **Internal model summarization** uses a direct model request rather than a Tool Call. The summary preserves the current goal, user constraints, confirmed decisions, completed work, active work and next steps, open questions, required Tool Results and asset references, current budget, waiting state, and latest WorkingContext. The current Session model is the default; a separate `compaction_model` is a later optional optimization.
-3. **Validation** requires a nonempty summary and verifies that the current goal, unfinished work, latest WorkingContext, Run identity, budget, waiting state, and Tool Call/Result pairing remain recoverable.
+2. **Internal model summarization** uses a direct model request rather than a Tool Call. The summary preserves the current goal, user constraints, confirmed decisions, completed work, active work and next steps, open questions, required Tool Results and asset references, current budget, waiting state, and latest active WorkingContext. The current Session model is the default; a separate `compaction_model` is a later optional optimization.
+3. **Validation** requires a nonempty summary and verifies that the current goal, unfinished work, latest active WorkingContext, Run identity, budget, waiting state, and Tool Call/Result pairing remain recoverable.
 4. **Append-only commit** appends the compaction event and its model usage. Subsequent Conversation projections are derived from the latest compaction event and the events after it; there is no persistent Snapshot to synchronize. Old Trajectory is never rewritten and is not automatically promoted to Wiki.
 
 If summarization or validation fails, the previous event-derived projection remains authoritative and no partial compaction event is committed. The failed oversized request is not sent as though compaction had succeeded.
 
 If the provider rejects a request for context overflow despite the 75% check, AgentLoop may force full compaction once and retry the same logical request within the same Run. A second overflow is terminal; it does not loop or fall back to an unreviewed lossy truncation. The summary request reuses the unchanged history prefix where possible; the new compaction-derived projection becomes a new prompt-cache boundary.
 
-The latest WorkingContext is preserved through compaction without carrying every historical version.
+Only the latest active WorkingContext is preserved through compaction; superseded versions and invalidation markers are omitted from the new projection.
 
 ### WorkingContext
 
-WorkingContext is a short, user-level reminder maintained by the Agent:
+WorkingContext is a short, user-level self-reminder maintained by the Agent:
 
-- `set_working_context` replaces the full text rather than appending indefinitely;
-- `clear_working_context` removes it;
+- `set_working_context` appends a new version rather than rewriting earlier provider-visible content; the newest active version supersedes earlier versions;
+- `clear_working_context` appends an invalidation marker rather than deleting history;
 - no `reason` field is required;
 - default scope is the current Run, with Session scope available for continuation across Turns;
-- it is injected as a separate user message near the end of the next model request;
-- it does not rewrite the real user message or override system rules, current user instructions, or tool permissions;
-- it sits after the stable prompt prefix to preserve prefix caching;
-- set and clear operations are recorded in Trajectory.
+- a Run ending with active Run-scoped WorkingContext appends an invalidation marker so later Runs do not treat it as active;
+- older versions and invalidation markers remain in the current provider-visible history until compaction, which keeps only the latest active version or none after clear/expiry;
+- its user-level role does not rewrite the real user message or override system rules, current user instructions, or tool permissions;
+- set, clear, and Run-expiry operations are recorded in Trajectory.
+
+This append-versioned contract supersedes the earlier replace/remove and dynamic-tail-overlay design.
+
+### Proactive is separate
+
+Proactive context management is a later, independent mechanism. Its accepted value is to reduce the user's context-management burden and release cognitive bandwidth, but task-phase detection, update triggers, user-facing distillation, and interruption policy are not responsibilities of WorkingContext or ContextBuilder alone.
 
 ### Budget profiles
 

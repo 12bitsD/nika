@@ -59,7 +59,7 @@ AgentWiki: Wiki knowledge + Skills, versioned with Git
 | Skills | Reusable working methods without prompt bloat | Standard `SKILL.md`, stable metadata index, full content loaded only when needed |
 | Trajectory | Explain what actually happened and support later analysis | Append-only Session events, asset references, `list_sessions`, `get_trajectory`, and explicit batch export |
 | Models and budgets | Support different task sizes and models | Multiple providers, streaming, bounded retries, provider-reported usage, `lite/pro/promax` budgets adjustable by the Agent |
-| WorkingContext | Let the Agent maintain a lightweight reminder during work | Replaceable user-level text injected near the next request's end; latest version survives compaction |
+| WorkingContext | Let the Agent maintain a lightweight reminder during work | Append-versioned user-level text; set, clear, and Run expiry append new versions or invalidation markers, and compaction keeps only the latest active version |
 | Persistence | Recover after restart without turning memory into a second Wiki | SQLite with WAL and `synchronous=FULL`, persistent container storage, online backup plus asset snapshots, manual GC |
 
 The feature list records **current decisions, not implemented capabilities**.
@@ -80,6 +80,7 @@ The feature list records **current decisions, not implemented capabilities**.
 
 - [Discussion roadmap](docs/architecture/discussion-roadmap.md) — the controlling discussion plan, stage close criteria, current status, and parking lot.
 - [AgentLoop core design](docs/design/agent-loop.md) — the M4 state machine, event ordering, cancellation, finalization, and interruption matrix.
+- [ContextBuilder design](docs/design/context-builder.md) — confirmed M5 append-only and WorkingContext decisions plus the remaining context, cache, and compaction questions.
 - [Feature worklist](docs/architecture/feature-worklist.md) — feature-by-feature value, approach, and remaining decisions.
 - [ADR-0002](docs/adr/0002-single-agent-loop.md) — current consolidated architecture baseline.
 - [CONTEXT.md](CONTEXT.md) — canonical domain vocabulary.
@@ -87,11 +88,11 @@ The feature list records **current decisions, not implemented capabilities**.
 
 ## Still being designed
 
-- Unified Prompt assembly, revision semantics, and compaction details.
-- Unified Prompt assembly and revision semantics.
+- ContextBuilder request/system tiers, WorkingContext details, content budgets, revision/cache planners, usage preflight, compaction details, and budget-change boundaries.
+- Proactive context management, reserved for a separate special topic after M5.
 - Wiki consumption, reserved for the **M3: Deep Dive AgentWiki Consumption** discussion.
 - Execution trust, credential isolation, and ownership of shared resources.
-- Detailed compaction policy, persistence schema, and backup/retention values.
+- Persistence schema, Feishu acceptance details, and backup/retention values.
 - Implementation language, code layout, deployment details, and CI.
 
 ## Content policy
