@@ -80,21 +80,35 @@ Runtime Wiki grep excludes generated INDEX and other explicitly generated mainte
 
 `ls` is retained only for bounded filesystem discovery. It returns directories and filenames without summaries and is primarily used before writes. It is distinct from the removed summary-heavy `list` catalog.
 
-## Write path
+## Write path and authorization
+
+Write permission is separate from knowledge provenance. `source_refs` records where knowledge came from; authorization is derived by Runtime from actual user instructions and confirmation events. The Agent cannot grant itself permission by declaring an `origin` or writing an authorization field.
+
+Runtime has three semantic write scopes:
+
+- `draft_only` is the default. The Agent may create, refine, or abandon unconfirmed drafts that have plausible reuse value.
+- `curate` is granted by an explicit user request to record, correct, or curate knowledge in the current task or Run. It allows ordinary Wiki entries to be created or updated as `active`, promoted, and superseded within that scope.
+- `behavior` is a separate explicit authorization for changes to `AGENTS.md`, Skills, or Wiki Skill. A generic request to record knowledge does not imply behavior authorization.
+
+Deterministic INDEX regeneration and structural validation do not require semantic write authorization. All Agent Wiki writes use the same validated write path; direct file or Shell writes must not bypass it. Concurrent writer ownership is an M6 resource concern.
 
 The Wiki Skill teaches the Agent to:
 
-1. run bounded `ls` to discover existing categories;
-2. grep names, aliases, and keys to avoid duplicates;
-3. use an existing suitable category or create a new shallow one;
-4. put uncertain or unclassified material in `inbox/` rather than forcing a poor fit;
+1. avoid writing when there is no plausible reuse value;
+2. run bounded `ls` to discover existing categories;
+3. grep names, aliases, and keys to avoid duplicates;
+4. use an existing suitable category, create a new shallow one, or use `inbox/` for uncertain material;
 5. write one Markdown entry with a self-describing header and sourced body;
-6. check a few likely future queries when practical, so the entry is discoverable and its summary is useful;
+6. check a few likely future queries when practical;
 7. avoid editing INDEX or maintaining duplicate summaries.
 
-Runtime write validation is structural, not a claim about truth: required fields, unique IDs, safe paths, supported lifecycle values, parseable frontmatter, resolvable `related` IDs, and valid `replaced_by` references. Concurrent writer ownership is an M6 resource concern.
+Drafts remain grep-able and must be presented as unconfirmed. The Agent may refine or abandon a draft before it is selected or cited by the user; it must not silently discard drafts that have entered a user review or maintenance flow.
 
-New knowledge is grep-able immediately after writing. No maintenance run is required before it can be used.
+Ordinary semantic updates to an `active` entry require `curate` and do not automatically create a superseded entry. `superseded` is used only when an authorized new conclusion replaces the old one, with `replaced_by` preserving the relationship. Newer material alone does not silently overturn an active conclusion. Physical deletion is not the default lifecycle operation and requires explicit user instruction.
+
+Every semantic write records `entry_id`, `from_state`, `to_state`, `content_hash`, `authorization_scope`, `run_id`, and applicable `source_refs`. Runtime fills the authorization scope; the model cannot self-attest it. Wiki Git records content evolution, while Trajectory records the execution and authorization context.
+
+Runtime write validation checks required fields, unique IDs, safe paths, supported lifecycle values, parseable frontmatter, resolvable `related` IDs, and valid `replaced_by` references. New knowledge is grep-able immediately after writing; no maintenance run is required before it can be used.
 
 ## Maintenance INDEX and lifecycle
 
@@ -112,7 +126,6 @@ System Prompt does not duplicate this manual. Skill metadata is supplied separat
 
 ## Remaining M3 decisions
 
-- **Write authorization:** who may create drafts, mark entries active, replace knowledge, and approve semantic maintenance.
 - **Retrieval budgets:** exact grep result limits, pagination, body/output caps, and behavior when matches remain too broad after narrowing.
 - **Compaction and caching:** which recalled Wiki content, references, and lifecycle metadata survive compaction, and how bootstrap snapshots are refreshed without unnecessary prefix invalidation.
 - **Synchronization:** Git publication and concurrent writer behavior, coordinated with M6/M7 rather than duplicated here.

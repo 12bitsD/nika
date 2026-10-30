@@ -91,7 +91,7 @@ The feature list records **current decisions, not implemented capabilities**.
 
 - System Prompt final wording, static Tool Catalog, WorkingContext details, content budgets, revision/cache planners, usage preflight, compaction details, and budget-change boundaries.
 - Proactive context management, reserved for a separate special topic after M5.
-- Wiki write authorization, grep/output budgets, compaction/cache behavior, and refresh boundaries.
+- Wiki grep/output budgets, compaction/cache behavior, and refresh boundaries.
 - Execution trust, credential isolation, and ownership of shared resources.
 - Persistence schema, Feishu acceptance details, and backup/retention values.
 - Implementation language, code layout, deployment details, and CI.

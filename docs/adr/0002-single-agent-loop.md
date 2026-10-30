@@ -183,6 +183,8 @@ The baseline is [agentwiki.md](../design/agentwiki.md): shallow dynamic categori
 
 Each entry owns its `id`, `kind`, `state`, `summary`, `keys`, and optional `related`, `verified`, and `replaced_by` metadata. Relations use stable IDs rather than paths. Lifecycle states are `draft`, `active`, and `superseded`.
 
+Write authorization is separate from provenance. `draft_only` is the default; `curate` permits ordinary active knowledge writes within an explicitly authorized task or Run; `behavior` is separately required for `AGENTS.md` and Skill changes. Runtime derives and records authorization from real user instructions, not model declarations. Active updates and conclusion replacement are distinct; superseded history is preserved.
+
 `wiki/INDEX.md` is generated from entry headers by maintenance. It is excluded from normal Wiki grep and is never required for reads, writes, or immediate retrieval. It exists for global inventory and long-term maintenance, not as a model bootstrap dependency.
 
 ### Skills follow progressive disclosure
