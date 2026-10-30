@@ -15,7 +15,7 @@ This file is the project's canonical glossary. It contains domain concepts only,
 | Wiki Skill | The on-demand instructions for Wiki retrieval, writing, source handling, category creation, and maintenance. |
 | Wiki write authorization | The Runtime-derived permission for semantic Wiki changes. `draft_only` is the default; `curate` covers ordinary active knowledge within an authorized task or Run; `behavior` separately covers `AGENTS.md` and Skill changes. Provenance does not itself grant permission. |
 | Skill | Instructions that teach the Agent how to perform a kind of work. Skills are discovered through a small index and loaded on demand rather than injected in full. |
-| WorkingContext | A short, user-level self-reminder maintained by the Agent during execution. New versions and invalidation markers are appended without rewriting earlier provider-visible content; the latest active version is used, and compaction drops superseded or inactive versions. It is scoped to a Run or Session and is neither long-term Wiki memory nor the separate proactive mechanism. |
+| WorkingContext | A short, user-level self-reminder maintained by the Agent, with at most one active version per Session. New versions and invalidation markers are appended without rewriting earlier content; compaction keeps only the latest active version immediately after the task summary. It is scoped to a Run or Session and is neither long-term Wiki memory nor the separate proactive mechanism. |
 
 ## Execution
 

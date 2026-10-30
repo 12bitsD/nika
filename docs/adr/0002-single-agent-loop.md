@@ -262,18 +262,19 @@ Only the latest active WorkingContext is preserved through compaction; supersede
 
 ### WorkingContext
 
-WorkingContext is a short, user-level self-reminder maintained by the Agent:
+WorkingContext is a short, user-level self-reminder maintained by the Agent. A Session has at most one active WorkingContext; Run and Session are lifetime scopes, not two parallel reminder slots.
 
-- `set_working_context` appends a new version rather than rewriting earlier provider-visible content; the newest active version supersedes earlier versions;
-- `clear_working_context` appends an invalidation marker rather than deleting history;
-- no `reason` field is required;
-- default scope is the current Run, with Session scope available for continuation across Turns;
-- a Run ending with active Run-scoped WorkingContext appends an invalidation marker so later Runs do not treat it as active;
-- older versions and invalidation markers remain in the current provider-visible history until compaction, which keeps only the latest active version or none after clear/expiry;
-- its user-level role does not rewrite the real user message or override system rules, current user instructions, or tool permissions;
-- set, clear, and Run-expiry operations are recorded in Trajectory.
+- `set_working_context(content, scope="run" | "session")` appends a new active version that supersedes the previous one, including across scopes. Identical content and scope return `WorkingContext unchanged` without a new message.
+- `clear_working_context()` clears the active version. Clearing an already empty context returns `WorkingContext is already empty` without a new message.
+- No `reason` field is required. Tool Results are short success or error text; revisions remain internal to Runtime and Trajectory.
+- Active messages use `[WorkingContext · run]` or `[WorkingContext · session]` followed by the reminder. Clear and Run expiry append `[WorkingContext cleared · scope]` or `[WorkingContext expired · scope]`; old bytes are never rewritten.
+- Content is trimmed, nonempty, and at most 2 KiB UTF-8. Oversized input is rejected rather than silently truncated.
+- After a valid set or clear, Runtime commits the Tool Result and state event, appends the corresponding user-level message, then appends pending steer before the next model call.
+- Run-scoped context expires at Run finalization or interrupted-Run recovery. Session-scoped context expires only through replacement or explicit clear.
+- Compaction preserves only the latest active WorkingContext immediately after the latest task summary and before subsequent messages. Older versions and clear/expiry markers are omitted.
+- Its user-level role provides salience, not user authorization; it cannot override system rules, current user instructions, or Tool permissions.
 
-This append-versioned contract supersedes the earlier replace/remove and dynamic-tail-overlay design.
+This append-versioned contract supersedes the earlier replace/remove design and the later revision/status-heavy Tool Result and message-envelope proposal.
 
 ### Proactive is separate
 

@@ -41,19 +41,19 @@ Tools use a small static catalog with clear semantics. The runtime resolves Sess
 
 ### WorkingContext is append-versioned
 
-WorkingContext is a short, user-level self-reminder maintained by the Agent during execution. It is not long-term Wiki memory, a permission channel, or the proactive mechanism itself.
+WorkingContext is a short, user-level self-reminder maintained by the Agent. A Session has at most one active WorkingContext at a time; Run and Session are lifetime scopes, not two parallel reminder slots.
 
-- `set_working_context` appends a new version. The newest active version supersedes earlier versions; it does not rewrite their provider-visible bytes.
-- `clear_working_context` appends an invalidation marker. It does not delete earlier messages.
-- No `reason` field is required.
-- The default scope is the current Run; Session scope is explicit.
-- When a Run ends with an active Run-scoped WorkingContext, an appended invalidation marker closes it for later Runs.
-- Older versions and invalidation markers can remain in the current provider-visible history until compaction. They are not the latest active reminder.
-- Compaction preserves only the latest active WorkingContext, or none if it was cleared or expired. Old Trajectory events remain unchanged.
+- `set_working_context(content, scope="run" | "session")` appends a new active version. The newest version supersedes the previous active version, including across scopes. Identical content and scope return `WorkingContext unchanged` without appending a message.
+- `clear_working_context()` clears the current active version. Clearing an already empty context returns `WorkingContext is already empty` without appending a message.
+- No `reason` field is required. Tool Results are short success or error text, not a lifecycle-state schema. Revisions remain internal to Runtime and Trajectory.
+- Active messages use `[WorkingContext · run]` or `[WorkingContext · session]` followed by the reminder. Clear and Run expiry append `[WorkingContext cleared · scope]` or `[WorkingContext expired · scope]`; old bytes are never rewritten.
+- Content is trimmed, nonempty, and at most 2 KiB UTF-8. Oversized input is rejected rather than silently truncated. Long-term knowledge, large plans, and hidden reasoning do not belong here.
+- After a valid set or clear, Runtime commits the Tool Result and state event, appends the corresponding user-level message, then appends pending steer before the next model call. Actual user input therefore follows the Agent's self-reminder.
+- Run-scoped context expires at Run finalization. Recovery from an interrupted Run appends the missing expiry before a new Turn. Session-scoped context expires only through replacement or an explicit clear.
+- Compaction preserves only the latest active WorkingContext, immediately after the latest task summary and before subsequent messages. Older versions and clear/expiry markers are omitted; if no active context exists, none is injected.
 - The user-level role provides salience, not user authorization. WorkingContext cannot override system rules, actual user instructions, or Tool permissions.
-- Set, clear, and Run-expiry events are recorded in Trajectory.
 
-This supersedes the earlier design in which WorkingContext was replaced or removed in place and only the latest text was injected as a dynamic request-tail overlay.
+This supersedes both the earlier replace/remove design and the later revision/status-heavy Tool Result and message-envelope proposal.
 
 ### Proactive is a separate mechanism
 
@@ -67,27 +67,23 @@ That behavior is not implemented by WorkingContext or ContextBuilder alone. Task
 
 Finalize each Tool's schema and description. The runtime-owned System Prompt and first static Tool Catalog are selected in [system-prompt.md](system-prompt.md). The top-level `tools[] + system + messages[]` shape, independent `AGENTS.md` bootstrap, removal of System Prompt tiers, and absence of baseline Tool Search are accepted.
 
-### 2. WorkingContext concrete contract
+### 2. Revisions and provider cache planning
 
-Define the provider message envelope, size limit, exact set/clear event ordering, Run and Session expiry details, validation, and compacted representation.
+Define when model, Tool, Skill, and project-context revisions may change; canonical serialization; OpenAI/Kimi implicit caching; Anthropic explicit cache breakpoints; and when retries must preserve request bytes. The WorkingContext contract is closed: one active version per Session, short Tool Results, 2 KiB content, and compaction immediately after the task summary.
 
-### 3. Revisions and provider cache planning
-
-Define when model, Tool, Skill, and project-context revisions may change; canonical serialization; OpenAI/Kimi implicit caching; Anthropic explicit cache breakpoints; and when retries must preserve request bytes.
-
-### 4. Content budgets
+### 3. Content budgets
 
 Assign budgets to system content, Tool schemas, Skill index, Conversation, WorkingContext, and multimodal content. Define what is loaded on demand or stored as an asset instead of occupying the request.
 
-### 5. Usage and preflight
+### 4. Usage and preflight
 
 Finalize provider-reported usage, anchored estimates, full local fallback estimates, the 75% compaction trigger, and whether the hard admission check explicitly includes `input + reserved output` capacity. The output-reserve rule is still a proposal, not an accepted addition.
 
-### 6. Compaction details
+### 5. Compaction details
 
 Finalize the compaction instruction, validation, failure/cancellation/crash behavior, second-overflow handling, the new cache boundary, and whether manual `/compact` belongs in the first version. The summary is a normal Agent-generated task summary without a fixed schema or mandatory Wiki/Skill/revision checklist.
 
-### 7. Budget-change boundaries
+### 6. Budget-change boundaries
 
 Define when Run and Session budget changes take effect, including shrinking, expansion, timeout recalculation, and interactions with in-flight operations.
 
