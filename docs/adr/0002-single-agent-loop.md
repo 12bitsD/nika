@@ -139,6 +139,8 @@ Agent-defined Hooks and fixed before/after Tool hook points are also excluded fr
 
 The Tool Catalog is statically registered. The current direction does not add a separate read-only approval matrix or an administrator budget ceiling. Execution still has timeouts, output limits, cancellation, and environment constraints.
 
+The selected runtime-owned System Prompt and first Tool Catalog are in [system-prompt.md](../design/system-prompt.md).
+
 ### Coding
 
 There is no coding mode. Ordinary chat and coding use the same AgentLoop and Tool Catalog. A coding Skill is loaded on demand to guide repository inspection, modification, testing, diff review, and delivery verification.

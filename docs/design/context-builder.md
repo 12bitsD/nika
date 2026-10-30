@@ -63,9 +63,9 @@ That behavior is not implemented by WorkingContext or ContextBuilder alone. Task
 
 ## Remaining M5 decisions
 
-### 1. System Prompt wording and Tool Catalog
+### 1. System Prompt and Tool Catalog
 
-Finalize the concise runtime-owned System Prompt text, the concrete static Tool Catalog, and each Tool's schema and description. The top-level `tools[] + system + messages[]` shape, independent `AGENTS.md` bootstrap, removal of System Prompt tiers, and absence of baseline Tool Search are accepted.
+Finalize each Tool's schema and description. The runtime-owned System Prompt and first static Tool Catalog are selected in [system-prompt.md](system-prompt.md). The top-level `tools[] + system + messages[]` shape, independent `AGENTS.md` bootstrap, removal of System Prompt tiers, and absence of baseline Tool Search are accepted.
 
 ### 2. WorkingContext concrete contract
 

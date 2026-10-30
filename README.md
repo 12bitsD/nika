@@ -82,6 +82,7 @@ The feature list records **current decisions, not implemented capabilities**.
 - [AgentLoop core design](docs/design/agent-loop.md) — the M4 state machine, event ordering, cancellation, finalization, and interruption matrix.
 - [ContextBuilder design](docs/design/context-builder.md) — confirmed M5 append-only and WorkingContext decisions plus the remaining context, cache, and compaction questions.
 - [AgentWiki design](docs/design/agentwiki.md) — Wiki structure, grep-based consumption, independently maintained `AGENTS.md`, and maintenance-derived INDEX.
+- [System Prompt](docs/design/system-prompt.md) — the selected M5 task-flow Prompt, Tool Catalog, and selection notes.
 - [Feature worklist](docs/architecture/feature-worklist.md) — feature-by-feature value, approach, and remaining decisions.
 - [ADR-0002](docs/adr/0002-single-agent-loop.md) — current consolidated architecture baseline.
 - [CONTEXT.md](CONTEXT.md) — canonical domain vocabulary.
@@ -89,7 +90,7 @@ The feature list records **current decisions, not implemented capabilities**.
 
 ## Still being designed
 
-- System Prompt final wording, static Tool Catalog, WorkingContext details, content budgets, revision/cache planners, usage preflight, compaction details, and budget-change boundaries.
+- Detailed Tool schemas and descriptions, WorkingContext details, content budgets, revision/cache planners, usage preflight, compaction details, and budget-change boundaries.
 - Proactive context management, reserved for a separate special topic after M5.
 - Execution trust, credential isolation, and ownership of shared resources.
 - Persistence schema, Feishu acceptance details, and backup/retention values.

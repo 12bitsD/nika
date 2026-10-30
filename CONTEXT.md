@@ -7,6 +7,7 @@ This file is the project's canonical glossary. It contains domain concepts only,
 | Term | Definition |
 |---|---|
 | AgentWiki | The shared root for `AGENTS.md`, long-term Wiki content, and Skills. Wiki and Skills have separate consumption mechanisms. |
+| System Prompt | The small runtime-owned contract for action, verification, harness use, and delivery. The selected text is maintained in `docs/design/system-prompt.md`, separately from the evolving `AGENTS.md` persona. |
 | AGENTS.md | The independently maintained description of the Agent's evolving role, personality, and interaction style. A snapshot enters the first request as runtime context rather than being compiled into System Prompt and is changed or refreshed only when the user explicitly requests it. |
 | Wiki | The only long-term knowledge store, with shallow dynamic categories and self-describing Markdown entries. It is distinct from Session history and Trajectory and has no separate Memory service. |
 | Wiki entry | One independently retrievable Markdown document with a stable ID, kind, lifecycle state, summary, grep keys, and optional relations and freshness metadata. |
