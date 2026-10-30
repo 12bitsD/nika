@@ -25,7 +25,7 @@ These decisions should not be reopened without an explicit change of product dir
 | Resources | M6 | What can each actor and process access, and who owns each resource? | Trust/credential rules, resource ownership, locks, concurrency, and crash cleanup cover every Tool and shared resource | Pending; depends on M4 |
 | Data and channels | M7 | What is authoritative, and how do external systems observe it? | Session/event/projection schema, Trajectory/export contracts, Feishu acceptance, backup, and GC are consistent | Pending; depends on M5 and M6 |
 | Engineering | M8 | How is the design implemented and verified? | Language, package layout, dependencies, container processes, storage mounts, health checks, and CI levels are chosen | Pending; depends on M7 |
-| Special topic | **M3** | How should Wiki actually be consumed? | A dedicated comparison and decision for bootstrap, retrieval, automatic recall, writeback, cache, and compaction | **In progress** — [agentwiki.md](../design/agentwiki.md); structure, write authorization, and output budgets accepted, compaction/refresh details remain |
+| Special topic | **M3** | How should Wiki actually be consumed? | A dedicated comparison and decision for bootstrap, retrieval, automatic recall, writeback, cache, and compaction | **Done** — [agentwiki.md](../design/agentwiki.md); Git synchronization and writer coordination belong to M6/M7 |
 | Special topic | Proactive | How should the Bot reduce the user's context-management burden? | A separate mechanism for task-phase detection, internal updates, user-facing distillation, authorization boundaries, and interruption policy | Planned after M5; value accepted, behavior not yet designed |
 | Closure | M9 | Is the architecture complete and implementable? | End-to-end review, no unowned big questions, synchronized docs, and a staged implementation plan | Pending; depends on M3, Proactive, and M8 |
 
@@ -53,8 +53,8 @@ Close only when every model request can be explained by a deterministic assembly
 
 - stable prefix, Skill/Wiki revisions, Session history, WorkingContext, and current input have a defined order;
 - within a compaction boundary and fixed revisions, provider-visible content is immutable and append-only, including WorkingContext versions and invalidation markers;
-- model and Skill changes have explicit current-Run versus next-Run behavior;
-- compaction has a defined trigger, preservation set, output, failure path, recovery, and new cache boundary;
+- model, Skill, Wiki, and `AGENTS.md` updates have explicit effective boundaries;
+- compaction has a defined trigger, Agent-generated task summary, validation, failure path, recovery, and new cache boundary;
 - budget changes take effect at a defined point.
 
 ### M6 — Trust and resources

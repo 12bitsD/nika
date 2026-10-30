@@ -7,7 +7,7 @@ This file is the project's canonical glossary. It contains domain concepts only,
 | Term | Definition |
 |---|---|
 | AgentWiki | The shared root for `AGENTS.md`, long-term Wiki content, and Skills. Wiki and Skills have separate consumption mechanisms. |
-| AGENTS.md | The independently maintained description of the Agent's evolving role, personality, and interaction style. A snapshot enters the first request as runtime context rather than being compiled into System Prompt. |
+| AGENTS.md | The independently maintained description of the Agent's evolving role, personality, and interaction style. A snapshot enters the first request as runtime context rather than being compiled into System Prompt and is changed or refreshed only when the user explicitly requests it. |
 | Wiki | The only long-term knowledge store, with shallow dynamic categories and self-describing Markdown entries. It is distinct from Session history and Trajectory and has no separate Memory service. |
 | Wiki entry | One independently retrievable Markdown document with a stable ID, kind, lifecycle state, summary, grep keys, and optional relations and freshness metadata. |
 | Wiki INDEX | A regenerable maintenance inventory derived from entry headers. It is excluded from normal grep and is not required by model reads, writes, or retrieval. |
@@ -29,7 +29,7 @@ This file is the project's canonical glossary. It contains domain concepts only,
 | RunStatus | The externally meaningful execution state: `Running` or `Stopped`. Diagnostic detail may be recorded without defining a separate user workflow for each reason. |
 | Interruption | An unclosed old Run caused by process failure or an unknown execution loss. Recovery closes the old Run and starts a new Turn from committed facts; it does not resume historical side effects. |
 | AgentState | What the AgentLoop is currently doing: `Idle`, `Streaming`, `ExecutingTool`, `Compacting`, `WaitingRequest`, or `WindingDown`. |
-| Compactor | The internal mechanism that deterministically cleans old context, requests a structured summary when needed, validates it, and appends a compaction event for subsequent projections. It is not a Tool and never rewrites old Trajectory. |
+| Compactor | The internal mechanism that makes a normal Agent request to summarize the current task with the same System Prompt and `AGENTS.md`, validates the result, and appends a compaction event. It is not a Tool and never rewrites old Trajectory. |
 | WaitingRequest | A runtime-created request for user input that blocks the current execution. At most one is pending per Session; its validated answer resumes the original Tool Call or model request rather than starting a new Turn. Ordinary end-of-turn questions do not create this state. |
 | WindingDown | Mandatory finalization is still in progress; execution is not yet fully stopped. |
 

@@ -56,7 +56,7 @@ AgentWiki: Wiki knowledge + Skills, versioned with Git
 | Coding | Better coding without another harness | One Tool Catalog plus an on-demand coding Skill; no coding mode |
 | BrowserUse / ComputerUse | Complete web and desktop tasks | Control only the browser and virtual desktop inside the bot container; serialize shared GUI actions |
 | AgentWiki | One place for evolving agent behavior, long-term knowledge, and Skill assets | `AGENTS.md`, `wiki/`, and `skills/`; shallow Wiki categories, grep-based retrieval, and a maintenance-generated INDEX |
-| Skills | Reusable working methods without prompt bloat | Standard `SKILL.md`, stable metadata index, full content loaded only when needed |
+| Skills | Reusable working methods without prompt bloat | Standard `SKILL.md`, dynamic metadata and current content loaded on demand |
 | Trajectory | Explain what actually happened and support later analysis | Append-only Session events, asset references, `list_sessions`, `get_trajectory`, and explicit batch export |
 | Models and budgets | Support different task sizes and models | Multiple providers, streaming, bounded retries, provider-reported usage, `lite/pro/promax` budgets adjustable by the Agent |
 | WorkingContext | Let the Agent maintain a lightweight reminder during work | Append-versioned user-level text; set, clear, and Run expiry append new versions or invalidation markers, and compaction keeps only the latest active version |
@@ -73,7 +73,7 @@ The feature list records **current decisions, not implemented capabilities**.
 - Historical tool calls are never replayed automatically after cancellation or restart.
 - Mandatory finalization uses `try/finally`; optional extensions do not own durable cleanup.
 - Every Session produces Trajectory. There is no automatic export, automatic Wiki promotion, or automatic RSI.
-- Compaction starts at 75% of the model context window, using provider-reported usage when available. The internal `Compactor` performs deterministic cleanup, internal model summarization, validation, and an append-only compaction event. Later Conversation projections derive from the latest compaction and subsequent events; old Trajectory is never rewritten.
+- Compaction starts at 75% of the model context window, using provider-reported usage when available. The internal `Compactor` makes a normal Agent request with the same System Prompt, `AGENTS.md`, and Conversation plus a summarize instruction, then validates and appends the result. The Agent keeps necessary task context without a fixed schema; old Trajectory is never rewritten.
 - Agent-defined Hooks and fixed before/after Tool hook points are parked; recording and audit belong directly to Trajectory.
 
 ## Documentation
@@ -91,7 +91,6 @@ The feature list records **current decisions, not implemented capabilities**.
 
 - System Prompt final wording, static Tool Catalog, WorkingContext details, content budgets, revision/cache planners, usage preflight, compaction details, and budget-change boundaries.
 - Proactive context management, reserved for a separate special topic after M5.
-- Wiki compaction/cache behavior and refresh boundaries.
 - Execution trust, credential isolation, and ownership of shared resources.
 - Persistence schema, Feishu acceptance details, and backup/retention values.
 - Implementation language, code layout, deployment details, and CI.

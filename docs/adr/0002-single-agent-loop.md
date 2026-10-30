@@ -175,7 +175,7 @@ AgentWiki/
 
 The root provides shared Git versioning and synchronization. Wiki is the only long-term knowledge source; there is no separate Memory service or automatic Recall Subagent. Wiki and Trajectory remain distinct: Wiki stores curated knowledge, while Trajectory records execution facts. Raw Trajectory is not automatically promoted into Wiki.
 
-`AGENTS.md` contains the Agent's evolving role, personality, and interaction style. It is maintained independently from the runtime-owned System Prompt and injected as a separate runtime context message at Session bootstrap.
+`AGENTS.md` contains the Agent's evolving role, personality, and interaction style. It is maintained independently from the runtime-owned System Prompt and injected as a separate runtime context message at Session bootstrap. It is changed or refreshed only when the user explicitly requests it, not because a file, Turn, or compaction boundary passes.
 
 ### Wiki consumption
 
@@ -191,9 +191,9 @@ Write authorization is separate from provenance. `draft_only` is the default; `c
 
 Skills use standard `SKILL.md` packages with metadata and optional scripts, references, and assets.
 
-The Agent receives a small, stable index of names, descriptions, paths, and content hashes separately from the runtime-owned System Prompt. When a task matches, the Agent calls a Skill-loading tool and receives the full instructions as a tool result. Supporting files are read on demand rather than injected with the index.
+The Agent receives a small index of names, descriptions, paths, and content hashes separately from the runtime-owned System Prompt. When a task matches, the Agent calls a Skill-loading tool and receives the current instructions as a tool result. Supporting files are read on demand rather than injected with the index.
 
-The current Turn keeps a stable Skill index; a later Turn may load a new version. There is one Wiki-backed Skill source rather than a hierarchy of overlapping sources. `skills/wiki/SKILL.md` teaches Wiki retrieval, writing, source handling, category creation, and maintenance without duplicating that manual in System Prompt.
+Skill content is dynamic at the point of use rather than pinned for a Turn; updated context is appended without rewriting earlier context. There is one Wiki-backed Skill source rather than a hierarchy of overlapping sources. `skills/wiki/SKILL.md` teaches Wiki retrieval, writing, source handling, category creation, and maintenance without duplicating that manual in System Prompt.
 
 ### Deferred agent-defined Hooks
 
@@ -246,16 +246,15 @@ Compaction starts at **75%** of the model context window. It never interrupts an
 
 ### Compactor mechanism
 
-Compaction is an internal `Compactor` module, not a Tool in the Tool Catalog. It runs four phases:
+Compaction is an internal `Compactor` module, not a Tool in the Tool Catalog. It uses a normal Agent summary request rather than a separate memory-management pipeline:
 
-1. **Deterministic cleanup** removes duplicate Tool Results, bounds old large outputs with head/tail preservation and asset references, removes inline binary payloads, and preserves Tool Call/Result pairing plus required recent messages. There is no separate frequently running micro-compaction; this phase runs only as part of full compaction.
-2. **Internal model summarization** uses a direct model request rather than a Tool Call. The summary preserves the current goal, user constraints, confirmed decisions, completed work, active work and next steps, open questions, required Tool Results and asset references, current budget, waiting state, and latest active WorkingContext. The current Session model is the default; a separate `compaction_model` is a later optional optimization.
-3. **Validation** requires a nonempty summary and verifies that the current goal, unfinished work, latest active WorkingContext, Run identity, budget, waiting state, and Tool Call/Result pairing remain recoverable.
-4. **Append-only commit** appends the compaction event and its model usage. Subsequent Conversation projections are derived from the latest compaction event and the events after it; there is no persistent Snapshot to synchronize. Old Trajectory is never rewritten and is not automatically promoted to Wiki.
+1. **Summary request** uses the same System Prompt, `AGENTS.md`, and current Conversation, with a final user instruction to summarize the current task. Tool execution is disabled. The Agent decides which goals, constraints, decisions, unfinished work, sources, and other context are necessary; there is no fixed summary schema or mandatory Wiki/Skill/revision checklist.
+2. **Validation** requires a nonempty summary, an actual reduction, unchanged System Prompt and `AGENTS.md`, and complete Tool Call/Result pairing. Runtime state remains in Session and does not need to be duplicated into the summary. The latest active WorkingContext is preserved separately.
+3. **Append-only commit** appends the compaction event and model usage. The next request is System Prompt + `AGENTS.md` + the task summary + subsequent messages. Old Trajectory is never rewritten or automatically promoted to Wiki.
 
 If summarization or validation fails, the previous event-derived projection remains authoritative and no partial compaction event is committed. The failed oversized request is not sent as though compaction had succeeded.
 
-If the provider rejects a request for context overflow despite the 75% check, AgentLoop may force full compaction once and retry the same logical request within the same Run. A second overflow is terminal; it does not loop or fall back to an unreviewed lossy truncation. The summary request reuses the unchanged history prefix where possible; the new compaction-derived projection becomes a new prompt-cache boundary.
+If the provider rejects a request for context overflow despite the 75% check, AgentLoop may force full compaction once and retry the same logical request within the same Run. A second overflow is terminal; it does not loop or fall back to an unreviewed lossy truncation. The new compaction-derived Conversation becomes a new prompt-cache boundary. A separate `compaction_model` is a later optional optimization.
 
 Only the latest active WorkingContext is preserved through compaction; superseded versions and invalidation markers are omitted from the new projection.
 

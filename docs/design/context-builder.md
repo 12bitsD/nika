@@ -35,7 +35,7 @@ The top-level request shape is `tools[] + system + messages[]`. The former `stab
 
 System Prompt is a small runtime-owned contract for action, verification, trust, and harness usage. It does not contain the evolving persona, recent tasks, Wiki snapshots, WorkingContext, budget balances, dynamic request IDs, or per-call timestamps. Tool-specific arguments belong in Tool schemas rather than a central Prompt manual.
 
-`AgentWiki/AGENTS.md` maintains the Agent's evolving role, personality, and interaction style. Its snapshot is injected as a separate runtime context message in the first request of a Session, not compiled into System Prompt. Skill metadata is likewise bootstrap context rather than part of the runtime-owned System Prompt; Skill bodies load on demand as Tool Results. Wiki content is retrieved on demand with `grep → read`, not injected as a default recent-task snapshot.
+`AgentWiki/AGENTS.md` maintains the Agent's evolving role, personality, and interaction style. Its snapshot is injected as a separate runtime context message in the first request of a Session, not compiled into System Prompt, and is changed or refreshed only when the user explicitly requests it. Skill metadata is separate from the runtime-owned System Prompt and dynamic at the point of use: a later Skill load may read the current version, with updated context appended rather than rewritten. Wiki entries are likewise read live with `grep → read`, without a required revision record or a default recent-task snapshot.
 
 Tools use a small static catalog with clear semantics. The runtime resolves Session, workspace, credentials, defaults, validation, retries, resource ownership, large-output assets, and error normalization so the model does not repeat those details. There is no universal `execute(action, payload)` Tool and no Tool Search in the baseline. An MCP adapter and allowlist configuration are reserved, but MCP is disabled and contributes no schemas by default.
 
@@ -85,7 +85,7 @@ Finalize provider-reported usage, anchored estimates, full local fallback estima
 
 ### 6. Compaction details
 
-Finalize the summary schema, protected and recent suffixes, validation, failure/cancellation/crash behavior, second-overflow handling, the new cache boundary, and whether manual `/compact` belongs in the first version.
+Finalize the compaction instruction, validation, failure/cancellation/crash behavior, second-overflow handling, the new cache boundary, and whether manual `/compact` belongs in the first version. The summary is a normal Agent-generated task summary without a fixed schema or mandatory Wiki/Skill/revision checklist.
 
 ### 7. Budget-change boundaries
 
@@ -98,4 +98,5 @@ Define when Run and Session budget changes take effect, including shrinking, exp
 - Tool Calls and Tool Results remain complete and correctly paired across every request and compaction boundary.
 - Equivalent inputs produce canonical, explainable request bytes; accepted revision changes are explicit and measurable.
 - Cache misses caused by compaction or revision changes are distinguishable from accidental serialization drift.
+- Compaction uses the same System Prompt and `AGENTS.md`, produces a nonempty and smaller task summary, preserves runtime state in Session, and keeps the latest active WorkingContext.
 - The 75% trigger, provider-capacity admission check, compaction failure, and provider-overflow recovery are exercised at their exact boundaries.

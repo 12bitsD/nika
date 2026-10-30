@@ -1,6 +1,6 @@
 # AgentWiki design
 
-Status: **M3 in progress**. The storage and consumption structure is accepted; write authorization, output budgets, and compaction behavior remain open. This document does not authorize runtime implementation.
+Status: **M3 complete**. Git synchronization and concurrent writer coordination are owned by M6/M7. This document does not authorize runtime implementation.
 
 ## Purpose
 
@@ -27,7 +27,7 @@ AgentWiki/
 
 These categories are conventions, not a closed enum. The Agent may create a shallow, lowercase, plural ASCII category when none of the existing categories is appropriate. Deep taxonomies are avoided; cross-category relationships use entry IDs rather than directory inheritance.
 
-`AGENTS.md` is the independently maintained home for the Agent's role, personality, long-term interaction style, and evolving preferences. It is not compiled into the runtime-owned System Prompt. A snapshot is injected as a separate runtime context message in the first request of a Session, with lower authority than the System Prompt. Project-level `AGENTS.md` files in code workspaces remain project context and are a different concern.
+`AGENTS.md` is the independently maintained home for the Agent's role, personality, long-term interaction style, and evolving preferences. It is not compiled into the runtime-owned System Prompt. A snapshot is injected as a separate runtime context message in the first request of a Session, with lower authority than the System Prompt, and is changed or refreshed only when the user explicitly requests it. Project-level `AGENTS.md` files in code workspaces remain project context and are a different concern.
 
 ## Entries are self-describing
 
@@ -142,10 +142,20 @@ The Agent's normal read and write paths never depend on INDEX being present or u
 
 System Prompt does not duplicate this manual. Skill metadata is supplied separately from the runtime-owned System Prompt, and the Skill body is loaded on demand.
 
-## Remaining M3 decisions
+## Updates and compaction
 
-- **Compaction and caching:** which recalled Wiki content, references, and lifecycle metadata survive compaction, and how bootstrap snapshots are refreshed without unnecessary prefix invalidation.
+Wiki entries are read live. `grep/read` returns ordinary results and the entry header; the Agent decides how to search, how much to read, whether the content is sufficient, and whether another lookup is needed. Runtime does not require a content hash or guarantee that a recalled entry remains the latest version. Already submitted Tool Results remain unchanged, while a later read may append newer content.
+
+Skills are also dynamic at the point of use. A later Skill load may read the current version rather than waiting for a new Turn. Any updated Skill context is appended without rewriting earlier context.
+
+`AGENTS.md` is changed or refreshed only when the user explicitly requests it. File changes, timestamps, a new Turn, or compaction do not silently replace the current agent context.
+
+Compaction is an ordinary Agent summary request. The runtime sends the same System Prompt, `AGENTS.md`, and current Conversation with a final instruction to summarize the current task, with Tool execution disabled. The Agent decides which task information is necessary and which details can be dropped; there is no mandatory Wiki, Skill, or revision checklist.
+
+The next request is assembled as System Prompt + `AGENTS.md` + the Agent's task summary + subsequent messages. Validation requires a nonempty summary, an actual size reduction, unchanged System Prompt and `AGENTS.md`, and complete Tool Call/Result pairing. Runtime state remains in Session, and the latest active WorkingContext is preserved. Old Trajectory is never rewritten.
+
+## Remaining coordination
+
 - **Synchronization:** Git publication and concurrent writer behavior, coordinated with M6/M7 rather than duplicated here.
-- **Refresh boundaries:** when a Session may adopt a new `AGENTS.md` snapshot or Wiki Skill revision.
 
 No vector database, knowledge graph, dedicated Memory manager, automatic Recall Subagent, or mandatory per-entry INDEX is part of the current baseline. These are reconsidered only after concrete failure cases show that the accepted structure cannot handle them.
