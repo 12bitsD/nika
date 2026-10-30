@@ -80,6 +80,24 @@ Runtime Wiki grep excludes generated INDEX and other explicitly generated mainte
 
 `ls` is retained only for bounded filesystem discovery. It returns directories and filenames without summaries and is primarily used before writes. It is distinct from the removed summary-heavy `list` catalog.
 
+## Retrieval output budgets
+
+Default budgets are intentionally small:
+
+| Operation | Default | At the boundary |
+|---|---|---|
+| `grep(scope="headers")` | 10 candidate entries | Return `has_more`; narrow before paging |
+| Body grep | 20 matches, at most 5 per file | Return `truncated` and a cursor |
+| Match context | 2 lines before and after | The Agent may request more for a selected match |
+| Total grep output | 16 KiB | Truncate explicitly without silent loss |
+| `read` | At most 200 lines or 16 KiB, whichever comes first | Continue by offset or cursor |
+
+The Agent may reduce these limits. More content is fetched through pagination rather than enlarging a single response. `summary` and `keys` are single-line fields limited to 240 and 160 characters respectively; oversized headers are rejected for rewriting rather than silently truncated. Long body lines are truncated explicitly while preserving valid UTF-8 and output structure.
+
+Broad queries are narrowed by adding terms, path, `kind`, `state`, or `scope="headers"` before fetching another page. Pagination is for intentional enumeration, not automatic recall of every result. One specific search and one broader alias/body retry are enough before reporting `unknown` or using another authorized source.
+
+Responses contain matches or entries, `truncated`, `has_more`, and an optional `next_cursor`. Ordering is deterministic by path and line number; no opaque relevance score is added. All lifecycle states remain retrievable and visible, while current-fact lookups prefer `active`.
+
 ## Write path and authorization
 
 Write permission is separate from knowledge provenance. `source_refs` records where knowledge came from; authorization is derived by Runtime from actual user instructions and confirmation events. The Agent cannot grant itself permission by declaring an `origin` or writing an authorization field.
@@ -126,7 +144,6 @@ System Prompt does not duplicate this manual. Skill metadata is supplied separat
 
 ## Remaining M3 decisions
 
-- **Retrieval budgets:** exact grep result limits, pagination, body/output caps, and behavior when matches remain too broad after narrowing.
 - **Compaction and caching:** which recalled Wiki content, references, and lifecycle metadata survive compaction, and how bootstrap snapshots are refreshed without unnecessary prefix invalidation.
 - **Synchronization:** Git publication and concurrent writer behavior, coordinated with M6/M7 rather than duplicated here.
 - **Refresh boundaries:** when a Session may adopt a new `AGENTS.md` snapshot or Wiki Skill revision.
