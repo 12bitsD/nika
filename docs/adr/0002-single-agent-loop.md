@@ -242,7 +242,9 @@ Multiple model providers and models are supported through configuration. Streami
 
 The evolving M5 contract is in [context-builder.md](../design/context-builder.md). Within one compaction boundary and fixed prompt revisions, provider-visible content is immutable and append-only: previous Tool definitions, system content, conversation messages, and WorkingContext versions are not rewritten. New committed content is appended to maximize prompt-cache reuse. Compaction may establish a new Conversation prefix without rewriting Trajectory.
 
-Context usage comes from provider-reported usage when available. A local estimate is only a fallback. Before every model request, AgentLoop evaluates the newly assembled request, including subsequent Tool Results, steer, WorkingContext, and Skill changes.
+Context usage comes from provider-reported usage when the model route, parameters, priced prefix, and serialization are unchanged. Otherwise Runtime uses a Provider `count_tokens` endpoint when available, then a full local estimate. Missing usage is never zero, and a request is not sent merely to learn whether it fits. Cached tokens still occupy the context window.
+
+Before every model request, AgentLoop assembles the complete candidate, including subsequent Tool Results, steer, WorkingContext, Skill changes, and multimodal content. It computes complete input `I` and the active profile's output reserve `O`. Compaction starts when `I >= 75%` of the model context window or when `I + O` exceeds Provider capacity; Providers with separate input and output limits apply them independently. After compaction, the candidate is rebuilt and checked again. Fixed content that cannot fit is reported rather than silently discarded.
 
 Compaction starts at **75%** of the model context window. It never interrupts an in-flight model request or Tool action: the current response or Tool Result is saved first. Steer arriving during compaction waits until compaction completes and is injected before the next model request.
 

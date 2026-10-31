@@ -79,6 +79,22 @@ Provider capacity remains a hard correctness constraint. If fixed content alone 
 
 Runtime records section sizes, cache usage, request/output sizes, and read patterns for later task-performance review. These measurements inform whether content is irrelevant, Tool definitions are unclear, or a different presentation would work better; they are not hardcoded budget ceilings.
 
+### Usage and preflight
+
+Every safe model boundary builds a complete candidate after committing completed Tool Results, WorkingContext, and steer. Input occupancy includes System Prompt, `AGENTS.md`, Tool schemas, Skill indexes, Conversation, Tool Calls and Results, current input, and multimodal content. Cached tokens still count.
+
+Usage is resolved in this order:
+
+1. Provider-reported usage from a previous response may anchor an incremental estimate only while model route, parameters, priced prefix, and serialization remain identical. Any relevant revision change invalidates the anchor.
+2. A Provider `count_tokens` endpoint, when available, evaluates the full candidate after prefix changes or when the anchor is unavailable.
+3. A full local estimate covers system, tools, messages, Tool Calls, and multimodal content with a versioned estimator and Provider-specific or conservative image handling.
+
+Missing usage is never treated as zero, and an oversized request is not sent merely to learn its usage. Compaction-summary usage is recorded separately and never anchors the main Conversation.
+
+Preflight computes `I` for complete input and `O` for the active profile's output reserve, including reasoning and Tool Calls. It enters Compacting when `I >= 75%` of the model window or when `I + O` exceeds the Provider's allowed capacity. Providers with separate input and output limits apply those limits independently instead of summing them.
+
+After compaction, Runtime rebuilds and rechecks the candidate. No-progress compaction and a second Provider overflow are terminal. If fixed content alone cannot fit, Runtime reports the configuration problem rather than silently dropping task information; the Agent or user may select a larger model, remove content, or explicitly reduce the output reserve. An exact-byte retry may reuse the previous preflight result; any new input or revision requires a fresh check.
+
 ### Proactive is a separate mechanism
 
 The value of proactive behavior is accepted: the Bot should reduce the user's context-management burden and release cognitive bandwidth by organizing task context, verifying facts within existing authorization, and surfacing only meaningful decisions and state changes.
@@ -91,15 +107,11 @@ That behavior is not implemented by WorkingContext or ContextBuilder alone. Task
 
 Finalize each Tool's schema and description. The runtime-owned System Prompt and first static Tool Catalog are selected in [system-prompt.md](system-prompt.md). The top-level `tools[] + system + messages[]` shape, independent `AGENTS.md` bootstrap, removal of System Prompt tiers, and absence of baseline Tool Search are accepted.
 
-### 2. Usage and preflight
-
-Finalize provider-reported usage, anchored estimates, full local fallback estimates, the 75% compaction trigger, and whether the hard admission check explicitly includes `input + reserved output` capacity. The output-reserve rule is still a proposal, not an accepted addition.
-
-### 3. Compaction details
+### 2. Compaction details
 
 Finalize the compaction instruction, validation, failure/cancellation/crash behavior, second-overflow handling, the new cache boundary, and whether manual `/compact` belongs in the first version. The summary is a normal Agent-generated task summary without a fixed schema or mandatory Wiki/Skill/revision checklist.
 
-### 4. Budget-change boundaries
+### 3. Budget-change boundaries
 
 Define when Run and Session budget changes take effect, including shrinking, expansion, timeout recalculation, and interactions with in-flight operations.
 
