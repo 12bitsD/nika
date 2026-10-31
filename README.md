@@ -59,7 +59,7 @@ AgentWiki: Wiki knowledge + Skills, versioned with Git
 | Skills | Reusable working methods without prompt bloat | Standard `SKILL.md`, dynamic metadata and current content loaded on demand |
 | Trajectory | Explain what actually happened and support later analysis | Append-only Session events, asset references, `list_sessions`, `get_trajectory`, and explicit batch export |
 | Models and budgets | Support different task sizes and models | Multiple providers, streaming, bounded retries, provider-reported usage, `lite/pro/promax` budgets adjustable by the Agent |
-| WorkingContext | Let the Agent maintain a lightweight reminder during work | One active user-level reminder per Session; set/clear append versions or markers, content is limited to 2 KiB, and compaction keeps only the latest active version after the task summary |
+| WorkingContext | Let the Agent maintain a lightweight reminder during work | One active user-level reminder per Session; set/clear append versions or markers, 2 KiB is a soft guideline, and compaction keeps only the latest active version after the task summary |
 | Persistence | Recover after restart without turning memory into a second Wiki | SQLite with WAL and `synchronous=FULL`, persistent container storage, online backup plus asset snapshots, manual GC |
 
 The feature list records **current decisions, not implemented capabilities**.
@@ -90,7 +90,7 @@ The feature list records **current decisions, not implemented capabilities**.
 
 ## Still being designed
 
-- Detailed Tool schemas and descriptions, content budgets, usage preflight, compaction details, and budget-change boundaries.
+- Detailed Tool schemas and descriptions, usage preflight, compaction details, and budget-change boundaries.
 - Proactive context management, reserved for a separate special topic after M5.
 - Execution trust, credential isolation, and ownership of shared resources.
 - Persistence schema, Feishu acceptance details, and backup/retention values.

@@ -47,7 +47,7 @@ WorkingContext is a short, user-level self-reminder maintained by the Agent. A S
 - `clear_working_context()` clears the current active version. Clearing an already empty context returns `WorkingContext is already empty` without appending a message.
 - No `reason` field is required. Tool Results are short success or error text, not a lifecycle-state schema. Revisions remain internal to Runtime and Trajectory.
 - Active messages use `[WorkingContext · run]` or `[WorkingContext · session]` followed by the reminder. Clear and Run expiry append `[WorkingContext cleared · scope]` or `[WorkingContext expired · scope]`; old bytes are never rewritten.
-- Content is trimmed, nonempty, and at most 2 KiB UTF-8. Oversized input is rejected rather than silently truncated. Long-term knowledge, large plans, and hidden reasoning do not belong here.
+- Content is trimmed and nonempty. 2 KiB is a soft readability guideline, not a rejection limit; the Agent may keep more when the task needs it. Long-term knowledge, large plans, and hidden reasoning still do not belong here.
 - After a valid set or clear, Runtime commits the Tool Result and state event, appends the corresponding user-level message, then appends pending steer before the next model call. Actual user input therefore follows the Agent's self-reminder.
 - Run-scoped context expires at Run finalization. Recovery from an interrupted Run appends the missing expiry before a new Turn. Session-scoped context expires only through replacement or an explicit clear.
 - Compaction preserves only the latest active WorkingContext, immediately after the latest task summary and before subsequent messages. Older versions and clear/expiry markers are omitted; if no active context exists, none is injected.
@@ -69,6 +69,16 @@ Cache hits affect cost and latency only, never correctness. Cached tokens still 
 
 Compaction preserves System Prompt and `AGENTS.md` bytes while creating a new Conversation cache boundary. Explicit model, Tool, or System Prompt changes also create a new boundary; updated Skill context is appended to preserve the old prefix where possible.
 
+### Content access and task performance
+
+There is no fixed total prefix cap or per-section rejection for System Prompt, `AGENTS.md`, Tool schemas, Skill indexes, or WorkingContext. Size is a diagnostic signal, not an optimization target. The Agent must be able to access information needed for the task and may revise these surfaces in a later reviewed improvement workflow.
+
+Limits are retained only where they address a concrete execution problem. Large Tool Results are stored as assets with a useful preview, preserving full evidence for later grep/read instead of dropping it. Wiki and other paged reads limit only one response, never total access; the Agent can continue fetching when the task requires it. Multimodal content uses assets and Provider-specific handling rather than inline base64 text.
+
+Provider capacity remains a hard correctness constraint. If fixed content alone cannot fit, Runtime reports the problem rather than silently discarding task-relevant information; the Agent or user may choose a larger model, remove unnecessary content, or change the task approach. Conversation uses remaining space and enters normal compaction at 75%.
+
+Runtime records section sizes, cache usage, request/output sizes, and read patterns for later task-performance review. These measurements inform whether content is irrelevant, Tool definitions are unclear, or a different presentation would work better; they are not hardcoded budget ceilings.
+
 ### Proactive is a separate mechanism
 
 The value of proactive behavior is accepted: the Bot should reduce the user's context-management burden and release cognitive bandwidth by organizing task context, verifying facts within existing authorization, and surfacing only meaningful decisions and state changes.
@@ -81,19 +91,15 @@ That behavior is not implemented by WorkingContext or ContextBuilder alone. Task
 
 Finalize each Tool's schema and description. The runtime-owned System Prompt and first static Tool Catalog are selected in [system-prompt.md](system-prompt.md). The top-level `tools[] + system + messages[]` shape, independent `AGENTS.md` bootstrap, removal of System Prompt tiers, and absence of baseline Tool Search are accepted.
 
-### 2. Content budgets
-
-Assign budgets to system content, Tool schemas, Skill index, Conversation, WorkingContext, and multimodal content. Define what is loaded on demand or stored as an asset instead of occupying the request. The Provider cache planning contract is closed.
-
-### 3. Usage and preflight
+### 2. Usage and preflight
 
 Finalize provider-reported usage, anchored estimates, full local fallback estimates, the 75% compaction trigger, and whether the hard admission check explicitly includes `input + reserved output` capacity. The output-reserve rule is still a proposal, not an accepted addition.
 
-### 4. Compaction details
+### 3. Compaction details
 
 Finalize the compaction instruction, validation, failure/cancellation/crash behavior, second-overflow handling, the new cache boundary, and whether manual `/compact` belongs in the first version. The summary is a normal Agent-generated task summary without a fixed schema or mandatory Wiki/Skill/revision checklist.
 
-### 5. Budget-change boundaries
+### 4. Budget-change boundaries
 
 Define when Run and Session budget changes take effect, including shrinking, expansion, timeout recalculation, and interactions with in-flight operations.
 

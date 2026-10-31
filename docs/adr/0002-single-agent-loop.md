@@ -270,6 +270,12 @@ OpenAI and Kimi use implicit caching with stable prefixes, sorted Tool definitio
 
 Cache hits affect cost and latency only; cached tokens still occupy the context window. Runtime records `cache_read/cache_write`, model route and parameters, relevant revisions, Conversation event range, cache plan, and serialization version without injecting them into the model. Compaction creates a new Conversation cache boundary while preserving System Prompt and `AGENTS.md` bytes.
 
+### Content access and task performance
+
+There is no fixed total prefix cap or per-section rejection for System Prompt, `AGENTS.md`, Tool schemas, Skill indexes, or WorkingContext. Size is diagnostic rather than an optimization target. Large Tool Results are stored as assets with a useful preview, preserving full evidence for later grep/read. Paged reads limit only one response, not total access; the Agent may continue fetching when needed.
+
+Provider capacity remains a hard correctness constraint. If fixed content alone cannot fit, Runtime reports it instead of silently discarding task-relevant information; the Agent or user may choose a larger model, remove unnecessary content, or change approach. Conversation uses remaining space and enters normal compaction at 75%. Runtime records section sizes, cache usage, request/output sizes, and read patterns for later task-performance review, not as hardcoded ceilings.
+
 ### WorkingContext
 
 WorkingContext is a short, user-level self-reminder maintained by the Agent. A Session has at most one active WorkingContext; Run and Session are lifetime scopes, not two parallel reminder slots.
@@ -278,7 +284,7 @@ WorkingContext is a short, user-level self-reminder maintained by the Agent. A S
 - `clear_working_context()` clears the active version. Clearing an already empty context returns `WorkingContext is already empty` without a new message.
 - No `reason` field is required. Tool Results are short success or error text; revisions remain internal to Runtime and Trajectory.
 - Active messages use `[WorkingContext · run]` or `[WorkingContext · session]` followed by the reminder. Clear and Run expiry append `[WorkingContext cleared · scope]` or `[WorkingContext expired · scope]`; old bytes are never rewritten.
-- Content is trimmed, nonempty, and at most 2 KiB UTF-8. Oversized input is rejected rather than silently truncated.
+- Content is trimmed and nonempty. 2 KiB is a soft readability guideline, not a rejection limit; the Agent may keep more when the task needs it.
 - After a valid set or clear, Runtime commits the Tool Result and state event, appends the corresponding user-level message, then appends pending steer before the next model call.
 - Run-scoped context expires at Run finalization or interrupted-Run recovery. Session-scoped context expires only through replacement or explicit clear.
 - Compaction preserves only the latest active WorkingContext immediately after the latest task summary and before subsequent messages. Older versions and clear/expiry markers are omitted.
