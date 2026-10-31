@@ -55,6 +55,20 @@ WorkingContext is a short, user-level self-reminder maintained by the Agent. A S
 
 This supersedes both the earlier replace/remove design and the later revision/status-heavy Tool Result and message-envelope proposal.
 
+### Revision and Provider cache planning
+
+Stable content changes only at explicit boundaries: model and Provider are fixed per Run; System Prompt and project `AGENTS.md` are fixed per Run; Tool Catalog is fixed per Turn; `AgentWiki/AGENTS.md` changes only after an explicit user request, with the new version appended in a later Turn. Already submitted content is never replaced.
+
+Wiki entries are read live, Skills are read at the point of use, and updated Skill indexes, WorkingContext versions, and steer are appended without rewriting earlier content. Dynamic behavior therefore never requires editing an earlier request.
+
+A retry may resend the exact provider-facing request only when no assistant output has been received and no new input has arrived. Model, parameters, Tool definitions, system content, messages, and serialized bytes must all match. Partial assistant output follows the M4 unknown/interrupted rules; newly arrived steer is appended as a new logical request; invalid parameters or schemas are corrected rather than blindly retried. Retry stays within the same Run.
+
+OpenAI and Kimi use implicit caching with stable prefixes, name-sorted Tool definitions, canonical key ordering, and provider-default TTL. Anthropic uses explicit breakpoints only after committed immutable content: stable system, fixed `AGENTS.md` bootstrap, or a complete recent Conversation group. Adapters handle provider-specific marker support instead of assuming identical `cache_control` behavior.
+
+Cache hits affect cost and latency only, never correctness. Cached tokens still occupy the context window, and `cache_read/cache_write` is recorded for observability. Runtime records model route and parameters, System Prompt/Tool/AGENTS/Skill-index revisions, Conversation event range, cache plan, and serialization version without injecting them into the model. Ordinary Wiki entries do not require a revision record.
+
+Compaction preserves System Prompt and `AGENTS.md` bytes while creating a new Conversation cache boundary. Explicit model, Tool, or System Prompt changes also create a new boundary; updated Skill context is appended to preserve the old prefix where possible.
+
 ### Proactive is a separate mechanism
 
 The value of proactive behavior is accepted: the Bot should reduce the user's context-management burden and release cognitive bandwidth by organizing task context, verifying facts within existing authorization, and surfacing only meaningful decisions and state changes.
@@ -67,23 +81,19 @@ That behavior is not implemented by WorkingContext or ContextBuilder alone. Task
 
 Finalize each Tool's schema and description. The runtime-owned System Prompt and first static Tool Catalog are selected in [system-prompt.md](system-prompt.md). The top-level `tools[] + system + messages[]` shape, independent `AGENTS.md` bootstrap, removal of System Prompt tiers, and absence of baseline Tool Search are accepted.
 
-### 2. Revisions and provider cache planning
+### 2. Content budgets
 
-Define when model, Tool, Skill, and project-context revisions may change; canonical serialization; OpenAI/Kimi implicit caching; Anthropic explicit cache breakpoints; and when retries must preserve request bytes. The WorkingContext contract is closed: one active version per Session, short Tool Results, 2 KiB content, and compaction immediately after the task summary.
+Assign budgets to system content, Tool schemas, Skill index, Conversation, WorkingContext, and multimodal content. Define what is loaded on demand or stored as an asset instead of occupying the request. The Provider cache planning contract is closed.
 
-### 3. Content budgets
-
-Assign budgets to system content, Tool schemas, Skill index, Conversation, WorkingContext, and multimodal content. Define what is loaded on demand or stored as an asset instead of occupying the request.
-
-### 4. Usage and preflight
+### 3. Usage and preflight
 
 Finalize provider-reported usage, anchored estimates, full local fallback estimates, the 75% compaction trigger, and whether the hard admission check explicitly includes `input + reserved output` capacity. The output-reserve rule is still a proposal, not an accepted addition.
 
-### 5. Compaction details
+### 4. Compaction details
 
 Finalize the compaction instruction, validation, failure/cancellation/crash behavior, second-overflow handling, the new cache boundary, and whether manual `/compact` belongs in the first version. The summary is a normal Agent-generated task summary without a fixed schema or mandatory Wiki/Skill/revision checklist.
 
-### 6. Budget-change boundaries
+### 5. Budget-change boundaries
 
 Define when Run and Session budget changes take effect, including shrinking, expansion, timeout recalculation, and interactions with in-flight operations.
 
@@ -94,5 +104,6 @@ Define when Run and Session budget changes take effect, including shrinking, exp
 - Tool Calls and Tool Results remain complete and correctly paired across every request and compaction boundary.
 - Equivalent inputs produce canonical, explainable request bytes; accepted revision changes are explicit and measurable.
 - Cache misses caused by compaction or revision changes are distinguishable from accidental serialization drift.
+- A retry with no assistant output and no new input preserves the exact provider-facing request; steer and partial-output cases follow their separate contracts.
 - Compaction uses the same System Prompt and `AGENTS.md`, produces a nonempty and smaller task summary, preserves runtime state in Session, and keeps the latest active WorkingContext.
 - The 75% trigger, provider-capacity admission check, compaction failure, and provider-overflow recovery are exercised at their exact boundaries.

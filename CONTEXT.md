@@ -31,6 +31,7 @@ This file is the project's canonical glossary. It contains domain concepts only,
 | Interruption | An unclosed old Run caused by process failure or an unknown execution loss. Recovery closes the old Run and starts a new Turn from committed facts; it does not resume historical side effects. |
 | AgentState | What the AgentLoop is currently doing: `Idle`, `Streaming`, `ExecutingTool`, `Compacting`, `WaitingRequest`, or `WindingDown`. |
 | Compactor | The internal mechanism that makes a normal Agent request to summarize the current task with the same System Prompt and `AGENTS.md`, validates the result, and appends a compaction event. It is not a Tool and never rewrites old Trajectory. |
+| Cache boundary | The start of a new provider-cache prefix. Compaction and explicit model, Tool, or System Prompt changes create one; ordinary messages and dynamic Skill or WorkingContext updates are appended to preserve the previous prefix. |
 | WaitingRequest | A runtime-created request for user input that blocks the current execution. At most one is pending per Session; its validated answer resumes the original Tool Call or model request rather than starting a new Turn. Ordinary end-of-turn questions do not create this state. |
 | WindingDown | Mandatory finalization is still in progress; execution is not yet fully stopped. |
 

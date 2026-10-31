@@ -260,6 +260,16 @@ If the provider rejects a request for context overflow despite the 75% check, Ag
 
 Only the latest active WorkingContext is preserved through compaction; superseded versions and invalidation markers are omitted from the new projection.
 
+### Revision and Provider cache planning
+
+Model and Provider are fixed per Run, System Prompt and project `AGENTS.md` are fixed per Run, and Tool Catalog is fixed per Turn. `AgentWiki/AGENTS.md` changes only after an explicit user request, with the new version appended in a later Turn. Wiki is read live, Skills are read at the point of use, and updated Skill indexes, WorkingContext versions, and steer are appended without rewriting earlier content.
+
+A retry preserves the exact provider-facing request only when no assistant output has been received and no new input has arrived. Partial output follows M4 unknown/interrupted handling; new steer forms a new logical request; invalid parameters or schemas are corrected rather than blindly retried.
+
+OpenAI and Kimi use implicit caching with stable prefixes, sorted Tool definitions, canonical key ordering, and provider-default TTL. Anthropic uses explicit breakpoints only after committed immutable content: stable system, fixed `AGENTS.md` bootstrap, or a complete recent Conversation group. Adapters handle provider-specific marker support.
+
+Cache hits affect cost and latency only; cached tokens still occupy the context window. Runtime records `cache_read/cache_write`, model route and parameters, relevant revisions, Conversation event range, cache plan, and serialization version without injecting them into the model. Compaction creates a new Conversation cache boundary while preserving System Prompt and `AGENTS.md` bytes.
+
 ### WorkingContext
 
 WorkingContext is a short, user-level self-reminder maintained by the Agent. A Session has at most one active WorkingContext; Run and Session are lifetime scopes, not two parallel reminder slots.

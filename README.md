@@ -90,7 +90,7 @@ The feature list records **current decisions, not implemented capabilities**.
 
 ## Still being designed
 
-- Detailed Tool schemas and descriptions, content budgets, revision/cache planners, usage preflight, compaction details, and budget-change boundaries.
+- Detailed Tool schemas and descriptions, content budgets, usage preflight, compaction details, and budget-change boundaries.
 - Proactive context management, reserved for a separate special topic after M5.
 - Execution trust, credential isolation, and ownership of shared resources.
 - Persistence schema, Feishu acceptance details, and backup/retention values.
