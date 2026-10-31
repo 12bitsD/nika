@@ -109,17 +109,23 @@ The value of proactive behavior is accepted: the Bot should reduce the user's co
 
 That behavior is not implemented by WorkingContext or ContextBuilder alone. Task-phase detection, update triggers, user-facing distillation, and interruption policy require a separate design topic after the M5 context baseline is closed.
 
-## Remaining M5 decisions
+### Budget profiles and change boundaries
 
-### 1. System Prompt and Tool Catalog
+`lite/pro/promax` are soft optimization profiles, with `pro` as default. Tool-call counts and time budgets guide efficiency rather than stopping a Run. `configure_budget(scope=run|session)` commits the Tool Result and `budget_changed` event, then applies to the next Tool/model operation. Run scope affects only the current Run; Session scope changes future Run defaults. In-flight operations keep their original limits.
 
-Finalize each Tool's schema and description. The runtime-owned System Prompt and first static Tool Catalog are selected in [system-prompt.md](system-prompt.md). The top-level `tools[] + system + messages[]` shape, independent `AGENTS.md` bootstrap, removal of System Prompt tiers, and absence of baseline Tool Search are accepted.
+The configuration Tool Result returns `cap`, `used`, `remaining`, and a short efficiency hint: prefer precise queries, avoid repeated reads, and verify before wrapping up. `over_budget` marks rather than blocks execution. Run time guidance is separate from per-request and per-Tool timeouts and does not reset on configuration changes or process restart.
 
-### 2. Budget-change boundaries
+## Remaining M5 decision
 
-Define when Run and Session budget changes take effect, including shrinking, expansion, timeout recalculation, and interactions with in-flight operations. The dedicated Compaction System Prompt and process contract are selected in [compaction-prompt.md](compaction-prompt.md).
+### Tool schemas and descriptions
+
+Finalize each Tool's schema and description. The runtime-owned System Prompt and first static Tool Catalog are selected in [system-prompt.md](system-prompt.md). The top-level `tools[] + system + messages[]` shape, independent `AGENTS.md` bootstrap, removal of System Prompt tiers, absence of baseline Tool Search, and soft budget behavior are accepted.
 
 ## Verification requirements for the eventual implementation
+
+- Budget changes apply only after commit, affect the next operation, and leave in-flight work unchanged.
+- Run-scoped changes do not alter Session defaults, and Session-scoped changes do not alter the current Run.
+- Tool Results contain `cap/used/remaining` and an efficiency hint, and over-budget execution continues with guidance rather than forced termination.
 
 - Two ordinary model calls preserve all earlier provider-visible content and append only new committed events.
 - WorkingContext set, replacement, clear, Run expiry, and compaction follow the append-versioned contract without rewriting old events.

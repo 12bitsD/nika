@@ -300,15 +300,17 @@ Proactive context management is a later, independent mechanism. Its accepted val
 
 ### Budget profiles
 
-| Profile | Tool calls | Run timeout | Single model output | Tool output |
+| Profile | Tool-call guidance | Time guidance | Single model output | Tool output |
 |---|---:|---:|---:|---:|
 | `lite` | 50 | 5 min | 8K tokens | 20 KB |
 | `pro` | 200 | 20 min | 32K tokens | 40 KB |
 | `promax` | 800 | 60 min | 64K tokens | 100 KB |
 
-`pro` is the default. `configure_budget` can select a profile or override values for the current Run or Session. There is no administrator hard ceiling. A Run that is already exhausted ends; it is not silently extended after the fact.
+`pro` is the default. Tool-call counts and time budgets are **soft optimization signals, not stop conditions**. Exceeding them never forcibly terminates a Run; Runtime marks `over_budget` and reminds the Agent to assess whether to continue, change approach, or wrap up. Hard stops remain limited to explicit cancellation, per-call timeouts, Provider constraints, or execution failures.
 
-Every attempted tool call counts, including failed or rejected calls. Parallel calls count individually.
+`configure_budget(scope=run|session)` applies after its Tool Result and `budget_changed` event commit, to the next Tool/model operation. Run scope changes only the current Run; Session scope changes defaults for future Runs. In-flight operations are unchanged. The result returns `cap`, `used`, `remaining`, and a short efficiency hint such as preferring precise queries, avoiding repeated reads, and verifying before wrapping up. No administrator hard ceiling is required.
+
+Every attempted tool call counts, including failed or rejected calls. Parallel calls count individually. Run time guidance is separate from per-request and per-Tool timeouts; it does not reset when budget values change or a process restarts.
 
 ## 7. Feishu
 

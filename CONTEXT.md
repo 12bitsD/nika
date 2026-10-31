@@ -44,8 +44,9 @@ This file is the project's canonical glossary. It contains domain concepts only,
 | Steer | The semantics of every ordinary message: idle input starts a new Turn; active-Turn input is buffered and injected at the next safe model boundary without immediately interrupting an active model request or tool action. |
 | Control input | Commands such as stop that bypass the steer buffer because they act on the current execution. |
 | Cancellation | A request to stop the current AgentLoop, model request, tools, and child processes. Late events from an older Run are discarded rather than attached to a new Turn. |
-| Tool call budget | The maximum number of tool calls a Run may attempt. Every attempted call counts, including failed or rejected calls; parallel calls count individually. |
-| Budget profile | A named collection of resource budgets: `lite`, `pro`, or `promax`. Profiles are Agent-adjustable configuration, not authorization boundaries. |
+| Tool call budget | A soft target for efficient Tool use. Every attempted call counts, including failed or rejected calls. Exceeding the target marks `over_budget` and prompts an efficiency review rather than stopping the Run. |
+| Budget profile | A named collection of soft resource guidance: `lite`, `pro`, or `promax`. Profiles are Agent-adjustable configuration, not authorization boundaries or hard stop limits. |
+| Time budget | Soft wall-clock guidance for a Run, separate from per-request and per-Tool timeouts. Expiry reminds the Agent to assess progress rather than forcibly terminating work. |
 | Finalization | Mandatory work after output stops: settling incomplete tool calls, saving authoritative state, releasing resources, and only then publishing completion. |
 
 ## Capabilities
