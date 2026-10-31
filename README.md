@@ -73,7 +73,7 @@ The feature list records **current decisions, not implemented capabilities**.
 - Historical tool calls are never replayed automatically after cancellation or restart.
 - Mandatory finalization uses `try/finally`; optional extensions do not own durable cleanup.
 - Every Session produces Trajectory. There is no automatic export, automatic Wiki promotion, or automatic RSI.
-- Compaction starts at 75% of the model context window, using provider-reported usage when available. The internal `Compactor` makes a normal Agent request with the same System Prompt, `AGENTS.md`, and Conversation plus a summarize instruction, then validates and appends the result. The Agent keeps necessary task context without a fixed schema; old Trajectory is never rewritten.
+- Compaction starts on user `/compact` or at 75% of the model context window. The internal `Compactor` uses the dedicated Compaction System Prompt with `AGENTS.md` and Conversation to reconstruct task state by future action value, then validates and appends the result. The next request uses the normal System Prompt, `AGENTS.md`, the new summary, and subsequent messages; old Trajectory is never rewritten.
 - Agent-defined Hooks and fixed before/after Tool hook points are parked; recording and audit belong directly to Trajectory.
 
 ## Documentation
@@ -83,6 +83,7 @@ The feature list records **current decisions, not implemented capabilities**.
 - [ContextBuilder design](docs/design/context-builder.md) — confirmed M5 append-only and WorkingContext decisions plus the remaining context, cache, and compaction questions.
 - [AgentWiki design](docs/design/agentwiki.md) — Wiki structure, grep-based consumption, independently maintained `AGENTS.md`, and maintenance-derived INDEX.
 - [System Prompt](docs/design/system-prompt.md) — the selected M5 task-flow Prompt, Tool Catalog, and selection notes.
+- [Compaction System Prompt](docs/design/compaction-prompt.md) — the dedicated summary Prompt and process contract produced through three optimization rounds.
 - [Feature worklist](docs/architecture/feature-worklist.md) — feature-by-feature value, approach, and remaining decisions.
 - [ADR-0002](docs/adr/0002-single-agent-loop.md) — current consolidated architecture baseline.
 - [CONTEXT.md](CONTEXT.md) — canonical domain vocabulary.
@@ -90,7 +91,7 @@ The feature list records **current decisions, not implemented capabilities**.
 
 ## Still being designed
 
-- Detailed Tool schemas and descriptions, compaction details, and budget-change boundaries.
+- Detailed Tool schemas and descriptions, and budget-change boundaries.
 - Proactive context management, reserved for a separate special topic after M5.
 - Execution trust, credential isolation, and ownership of shared resources.
 - Persistence schema, Feishu acceptance details, and backup/retention values.

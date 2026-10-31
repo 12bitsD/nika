@@ -150,9 +150,9 @@ Skills are also dynamic at the point of use. A later Skill load may read the cur
 
 `AGENTS.md` is changed or refreshed only when the user explicitly requests it. File changes, timestamps, a new Turn, or compaction do not silently replace the current agent context.
 
-Compaction is an ordinary Agent summary request. The runtime sends the same System Prompt, `AGENTS.md`, and current Conversation with a final instruction to summarize the current task, with Tool execution disabled. The Agent decides which task information is necessary and which details can be dropped; there is no mandatory Wiki, Skill, or revision checklist.
+Compaction is an ordinary Agent summary request. The runtime uses the dedicated [compaction-prompt.md](compaction-prompt.md) with `AGENTS.md` and current Conversation plus a final summarize instruction, with Tool definitions and execution disabled. The Agent reconstructs current task state by future action value rather than following a mandatory Wiki, Skill, revision, or Tool-transcript checklist.
 
-The next request is assembled as System Prompt + `AGENTS.md` + the Agent's task summary + subsequent messages. Validation requires a nonempty summary, an actual size reduction, unchanged System Prompt and `AGENTS.md`, and complete Tool Call/Result pairing. Runtime state remains in Session, and the latest active WorkingContext is preserved. Old Trajectory is never rewritten.
+The next request is normal System Prompt + `AGENTS.md` + the new task summary + the latest active WorkingContext, if any + subsequent messages. Validation requires a nonempty, meaningfully smaller result, unchanged normal System Prompt and `AGENTS.md`, valid request structure, and successful `I + O` preflight. Runtime state remains in Session. Old Trajectory is never rewritten.
 
 ## Remaining coordination
 

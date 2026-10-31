@@ -95,6 +95,14 @@ Preflight computes `I` for complete input and `O` for the active profile's outpu
 
 After compaction, Runtime rebuilds and rechecks the candidate. No-progress compaction and a second Provider overflow are terminal. If fixed content alone cannot fit, Runtime reports the configuration problem rather than silently dropping task information; the Agent or user may select a larger model, remove content, or explicitly reduce the output reserve. An exact-byte retry may reuse the previous preflight result; any new input or revision requires a fresh check.
 
+### Compaction prompt and process
+
+The dedicated [compaction-prompt.md](compaction-prompt.md) replaces the normal task System Prompt for the summary request. The request is dedicated Compaction System Prompt + `AGENTS.md` + current Conversation + summarize instruction, with no Tool definitions or execution. It reconstructs current task state by future action value rather than preserving a fixed schema or complete Tool transcripts.
+
+Compaction starts only on user `/compact` or at the 75% preflight threshold. `/compact` runs immediately while Idle and otherwise at the next safe model boundary. A failed or unusable summary is not committed; the previous projection remains and the failure is reported. Provider overflow permits one compaction, not an unbounded sequence. A fresh compaction that still cannot produce an admissible request ends with the error.
+
+The next request is normal System Prompt + `AGENTS.md` + the new task summary + the latest active WorkingContext, if any + subsequent messages. Validation requires a nonempty, meaningfully smaller result, unchanged normal System Prompt and `AGENTS.md`, valid request structure, and successful `I + O` preflight. Runtime state remains in Session, and old Trajectory is never rewritten.
+
 ### Proactive is a separate mechanism
 
 The value of proactive behavior is accepted: the Bot should reduce the user's context-management burden and release cognitive bandwidth by organizing task context, verifying facts within existing authorization, and surfacing only meaningful decisions and state changes.
@@ -107,13 +115,9 @@ That behavior is not implemented by WorkingContext or ContextBuilder alone. Task
 
 Finalize each Tool's schema and description. The runtime-owned System Prompt and first static Tool Catalog are selected in [system-prompt.md](system-prompt.md). The top-level `tools[] + system + messages[]` shape, independent `AGENTS.md` bootstrap, removal of System Prompt tiers, and absence of baseline Tool Search are accepted.
 
-### 2. Compaction details
+### 2. Budget-change boundaries
 
-Finalize the compaction instruction, validation, failure/cancellation/crash behavior, second-overflow handling, the new cache boundary, and whether manual `/compact` belongs in the first version. The summary is a normal Agent-generated task summary without a fixed schema or mandatory Wiki/Skill/revision checklist.
-
-### 3. Budget-change boundaries
-
-Define when Run and Session budget changes take effect, including shrinking, expansion, timeout recalculation, and interactions with in-flight operations.
+Define when Run and Session budget changes take effect, including shrinking, expansion, timeout recalculation, and interactions with in-flight operations. The dedicated Compaction System Prompt and process contract are selected in [compaction-prompt.md](compaction-prompt.md).
 
 ## Verification requirements for the eventual implementation
 
@@ -123,5 +127,5 @@ Define when Run and Session budget changes take effect, including shrinking, exp
 - Equivalent inputs produce canonical, explainable request bytes; accepted revision changes are explicit and measurable.
 - Cache misses caused by compaction or revision changes are distinguishable from accidental serialization drift.
 - A retry with no assistant output and no new input preserves the exact provider-facing request; steer and partial-output cases follow their separate contracts.
-- Compaction uses the same System Prompt and `AGENTS.md`, produces a nonempty and smaller task summary, preserves runtime state in Session, and keeps the latest active WorkingContext.
+- Compaction uses the dedicated Compaction System Prompt with `AGENTS.md`, produces a nonempty and smaller task summary, preserves runtime state in Session, and keeps the latest active WorkingContext.
 - The 75% trigger, provider-capacity admission check, compaction failure, and provider-overflow recovery are exercised at their exact boundaries.

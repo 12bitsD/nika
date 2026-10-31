@@ -250,15 +250,15 @@ Compaction starts at **75%** of the model context window. It never interrupts an
 
 ### Compactor mechanism
 
-Compaction is an internal `Compactor` module, not a Tool in the Tool Catalog. It uses a normal Agent summary request rather than a separate memory-management pipeline:
+Compaction is an internal `Compactor` module, not a Tool in the Tool Catalog. It uses the dedicated [compaction-prompt.md](../design/compaction-prompt.md) instead of the normal task System Prompt:
 
-1. **Summary request** uses the same System Prompt, `AGENTS.md`, and current Conversation, with a final user instruction to summarize the current task. Tool execution is disabled. The Agent decides which goals, constraints, decisions, unfinished work, sources, and other context are necessary; there is no fixed summary schema or mandatory Wiki/Skill/revision checklist.
-2. **Validation** requires a nonempty summary, an actual reduction, unchanged System Prompt and `AGENTS.md`, and complete Tool Call/Result pairing. Runtime state remains in Session and does not need to be duplicated into the summary. The latest active WorkingContext is preserved separately.
-3. **Append-only commit** appends the compaction event and model usage. The next request is System Prompt + `AGENTS.md` + the task summary + subsequent messages. Old Trajectory is never rewritten or automatically promoted to Wiki.
+1. **Summary request** uses the dedicated Compaction System Prompt, `AGENTS.md`, and current Conversation with a final summarize instruction and no Tool definitions or execution. The Agent reconstructs current task state by future action value: required inline information, recoverable references, or disposable detail. Tool outcomes are preserved only as relevant conclusions, atomic facts, or recovery directions rather than complete transcripts.
+2. **Validation** requires a nonempty, meaningfully smaller result, unchanged normal System Prompt and `AGENTS.md`, valid request structure, and successful `I + O` preflight. Runtime state remains in Session, and the latest active WorkingContext is preserved separately after the summary.
+3. **Append-only commit** appends the compaction event and model usage. The next request is normal System Prompt + `AGENTS.md` + the new task summary + the latest active WorkingContext, if any + subsequent messages. Old Trajectory is never rewritten or automatically promoted to Wiki.
 
-If summarization or validation fails, the previous event-derived projection remains authoritative and no partial compaction event is committed. The failed oversized request is not sent as though compaction had succeeded.
+Compaction starts only on user `/compact` or at the 75% preflight threshold. `/compact` runs immediately while Idle and otherwise at the next safe model boundary; no separate maintenance-Turn design is required.
 
-If the provider rejects a request for context overflow despite the 75% check, AgentLoop may force full compaction once and retry the same logical request within the same Run. A second overflow is terminal; it does not loop or fall back to an unreviewed lossy truncation. The new compaction-derived Conversation becomes a new prompt-cache boundary. A separate `compaction_model` is a later optional optimization.
+A failed or unusable summary is not committed; the previous projection remains and the failure is reported. Provider overflow permits one compaction, not an unbounded sequence. If a fresh compaction still cannot produce an admissible request, the Run stops with the error rather than repeatedly compacting. The new compaction-derived Conversation becomes a new prompt-cache boundary. A separate `compaction_model` is a later optional optimization.
 
 Only the latest active WorkingContext is preserved through compaction; superseded versions and invalidation markers are omitted from the new projection.
 
