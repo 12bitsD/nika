@@ -99,7 +99,7 @@ After compaction, Runtime rebuilds and rechecks the candidate. No-progress compa
 
 The dedicated [compaction-prompt.md](compaction-prompt.md) replaces the normal task System Prompt for the summary request. The request is dedicated Compaction System Prompt + `AGENTS.md` + current Conversation + summarize instruction, with no Tool definitions or execution. It reconstructs current task state by future action value rather than preserving a fixed schema or complete Tool transcripts.
 
-Compaction starts only on user `/compact` or at the 75% preflight threshold. `/compact` runs immediately while Idle and otherwise at the next safe model boundary. A failed or unusable summary is not committed; the previous projection remains and the failure is reported. Provider overflow permits one compaction, not an unbounded sequence. A fresh compaction that still cannot produce an admissible request ends with the error.
+Compaction starts on user `/compact`, the 75% input threshold, or a preflight capacity violation as defined above. `/compact` runs immediately while Idle and otherwise at the next safe model boundary. A failed or unusable summary is not committed; the previous projection remains and the failure is reported. Provider overflow permits one compaction, not an unbounded sequence. A fresh compaction that still cannot produce an admissible request ends with the error.
 
 The next request is normal System Prompt + `AGENTS.md` + the new task summary + the latest active WorkingContext, if any + subsequent messages. Validation requires a nonempty, meaningfully smaller result, unchanged normal System Prompt and `AGENTS.md`, valid request structure, and successful `I + O` preflight. Runtime state remains in Session, and old Trajectory is never rewritten.
 

@@ -73,13 +73,15 @@ The feature list records **current decisions, not implemented capabilities**.
 - Historical tool calls are never replayed automatically after cancellation or restart.
 - Mandatory finalization uses `try/finally`; optional extensions do not own durable cleanup.
 - Every Session produces Trajectory. There is no automatic export, automatic Wiki promotion, or automatic RSI.
-- Compaction starts on user `/compact` or at 75% of the model context window. The internal `Compactor` uses the dedicated Compaction System Prompt with `AGENTS.md` and Conversation to reconstruct task state by future action value, then validates and appends the result. The next request uses the normal System Prompt, `AGENTS.md`, the new summary, and subsequent messages; old Trajectory is never rewritten.
+- Compaction starts on user `/compact`, at 75% input occupancy, or when preflight detects a Provider capacity violation, including `I + O` overflow. The internal `Compactor` uses the dedicated Compaction System Prompt with `AGENTS.md` and Conversation to reconstruct task state by future action value, then validates and appends the result. The next request uses the normal System Prompt, `AGENTS.md`, the new summary, the latest active WorkingContext if any, and subsequent messages; old Trajectory is never rewritten.
 - Agent-defined Hooks and fixed before/after Tool hook points are parked; recording and audit belong directly to Trajectory.
 
 ## Documentation
 
-- [Discussion roadmap](docs/architecture/discussion-roadmap.md) — the controlling discussion plan, stage close criteria, current status, and parking lot.
-- [AgentLoop core design](docs/design/agent-loop.md) — the M4 state machine, event ordering, cancellation, finalization, and interruption matrix.
+- [Discussion roadmap](docs/architecture/discussion-roadmap.md#discussion-topics) — remaining gaps grouped into T1–T8 responsibility topics, with interfaces, stage dependencies, and close criteria. Start with T1 ReAct and its T3 Tool contracts.
+- [Development handoff](docs/architecture/development-handoff.md) — a dated baseline audit, essential contracts, and implementation-readiness gaps.
+- [AgentLoop capability review](docs/architecture/agent-loop-capability-review.md) — ReAct/Harness/Super-agent comparison, G0–G13 ownership, and proposed additions, with primary-source research links.
+- [AgentLoop core design](docs/design/agent-loop.md) — the M4 state machine, internal module responsibilities, event ordering, cancellation, finalization, and open ReAct protocol follow-up.
 - [ContextBuilder design](docs/design/context-builder.md) — confirmed M5 append-only and WorkingContext decisions plus the remaining context, cache, and compaction questions.
 - [AgentWiki design](docs/design/agentwiki.md) — Wiki structure, grep-based consumption, independently maintained `AGENTS.md`, and maintenance-derived INDEX.
 - [System Prompt](docs/design/system-prompt.md) — the selected M5 task-flow Prompt, Tool Catalog, and selection notes.
@@ -91,6 +93,7 @@ The feature list records **current decisions, not implemented capabilities**.
 
 ## Still being designed
 
+- ReAct response classification, executable calls, correlated observations, and continuation/completion semantics.
 - Detailed Tool schemas and descriptions.
 - Proactive context management, reserved for a separate special topic after M5.
 - Execution trust, credential isolation, and ownership of shared resources.

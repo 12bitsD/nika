@@ -48,7 +48,7 @@ Tool 输出只保留与继续任务、约束遵守、结果验证或避免重复
 
 Compaction uses this dedicated Compaction System Prompt instead of the normal task System Prompt. The summary request is `Compaction System Prompt + AGENTS.md + current Conversation + summarize instruction`, with no Tool definitions or Tool execution.
 
-Compaction starts only when the user issues `/compact` or when preflight reaches 75% before the next model request. `/compact` runs immediately while Idle and otherwise at the next safe model boundary; it does not require a separate maintenance-Turn design.
+Compaction starts when the user issues `/compact`, when input reaches 75% of the model window, or when the complete request violates the [preflight capacity contract](context-builder.md#usage-and-preflight), including `I + O` overflow. `/compact` runs immediately while Idle and otherwise at the next safe model boundary; it does not require a separate maintenance-Turn design.
 
 The result is judged by whether a fresh Agent can continue the task correctly, not by summary format or coverage. Validation requires a nonempty, meaningfully smaller result, unchanged normal System Prompt and `AGENTS.md`, valid request structure, and a successful `I + O` preflight. Relevant Tool outcomes are summarized by value; complete Tool transcripts are not a preservation requirement.
 

@@ -14,7 +14,7 @@ The bot should be small, easy to modify, and optimized for one real environment 
 - Bot, BrowserUse, and ComputerUse all operate inside one container;
 - every Session produces a complete Trajectory, with export only on demand;
 - Wiki and Skill share an `AgentWiki` root but keep distinct consumption semantics;
-- the exact Wiki consumption model is intentionally deferred to a dedicated deep dive.
+- the Wiki consumption model is defined by the completed M3 [AgentWiki design](../design/agentwiki.md); synchronization and writer ownership remain M6/M7 work.
 
 ADR-0001's two-Engine design is superseded because it would duplicate lifecycle management already present in an external harness, complicate complete Trajectory capture, and provide less value than a single native execution path.
 
@@ -246,7 +246,7 @@ Context usage comes from provider-reported usage when the model route, parameter
 
 Before every model request, AgentLoop assembles the complete candidate, including subsequent Tool Results, steer, WorkingContext, Skill changes, and multimodal content. It computes complete input `I` and the active profile's output reserve `O`. Compaction starts when `I >= 75%` of the model context window or when `I + O` exceeds Provider capacity; Providers with separate input and output limits apply them independently. After compaction, the candidate is rebuilt and checked again. Fixed content that cannot fit is reported rather than silently discarded.
 
-Compaction starts at **75%** of the model context window. It never interrupts an in-flight model request or Tool action: the current response or Tool Result is saved first. Steer arriving during compaction waits until compaction completes and is injected before the next model request.
+Compaction starts at **75%** input occupancy or a preflight capacity violation as defined above. It never interrupts an in-flight model request or Tool action: the current response or Tool Result is saved first. Steer arriving during compaction waits until compaction completes and is injected before the next model request.
 
 ### Compactor mechanism
 
@@ -256,7 +256,7 @@ Compaction is an internal `Compactor` module, not a Tool in the Tool Catalog. It
 2. **Validation** requires a nonempty, meaningfully smaller result, unchanged normal System Prompt and `AGENTS.md`, valid request structure, and successful `I + O` preflight. Runtime state remains in Session, and the latest active WorkingContext is preserved separately after the summary.
 3. **Append-only commit** appends the compaction event and model usage. The next request is normal System Prompt + `AGENTS.md` + the new task summary + the latest active WorkingContext, if any + subsequent messages. Old Trajectory is never rewritten or automatically promoted to Wiki.
 
-Compaction starts only on user `/compact` or at the 75% preflight threshold. `/compact` runs immediately while Idle and otherwise at the next safe model boundary; no separate maintenance-Turn design is required.
+Compaction starts on user `/compact`, the 75% input threshold, or a preflight capacity violation. `/compact` runs immediately while Idle and otherwise at the next safe model boundary; no separate maintenance-Turn design is required.
 
 A failed or unusable summary is not committed; the previous projection remains and the failure is reported. Provider overflow permits one compaction, not an unbounded sequence. If a fresh compaction still cannot produce an admissible request, the Run stops with the error rather than repeatedly compacting. The new compaction-derived Conversation becomes a new prompt-cache boundary. A separate `compaction_model` is a later optional optimization.
 
@@ -352,13 +352,13 @@ GC is required for disk safety but is manually initiated in the current design. 
 
 The live feature-by-feature status and remaining decisions are tracked in [feature-worklist.md](../architecture/feature-worklist.md).
 
-- **AgentLoop internals** — M4 baseline closed in [agent-loop.md](../design/agent-loop.md); remaining work is event schema, numeric timeouts, and implementation tests.
-- **Prompt assembly** — one deterministic ContextBuilder, revision policy, multi-model switching, and prompt-cache behavior.
+- **AgentLoop internals** — state-machine/lifecycle baseline in [agent-loop.md](../design/agent-loop.md), with the [ReAct protocol follow-up](../architecture/agent-loop-capability-review.md#react-execution-protocol-gap) open; internal interfaces, event schema, numeric timeouts, and implementation tests remain.
+- **Prompt assembly** — ContextBuilder, revision/cache behavior, WorkingContext, usage preflight, and soft-budget direction are defined. Detailed Tool schemas, Provider wire mappings, and implementation verification remain.
 - **Execution trust and resources** — actor trust, credential isolation, child-process environment, browser login state, and ownership of shared resources.
 - **Session projection and recovery** — exact event-to-context projection, validation of interrupted or malformed events, and recovery behavior. There is no persistent Snapshot or second execution-history authority.
-- **M3: Wiki consumption** — bootstrap, retrieval, automatic recall, writeback, caching, and compaction for Wiki content.
+- **Wiki integration** — M3 consumption is closed; authorization enforcement, Git synchronization, publication, and concurrent writer ownership remain M6/M7 work.
 - Implementation language, code layout, deployment details, and CI. Rust and Python remain the candidates; container Browser/Computer ecology is a primary deciding factor.
-- Detailed compaction summary structure and preservation policy beyond the 75% trigger and provider-usage anchor.
+- Compaction Prompt and preservation direction are selected; executable validation details and live continuation evaluation remain.
 - Exact persistence schema, backup schedule, and retention values.
 - Provider-specific conversion from `aift/v1` to a concrete training chat template.
 - Deferred agent-defined Hooks and any future RSI policy. These are parked, not part of the current baseline.
