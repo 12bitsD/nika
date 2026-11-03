@@ -2,7 +2,7 @@
 
 - Status: M4 state-machine and lifecycle baseline; ReAct execution-protocol follow-up open (2026-11-02)
 - Date: 2026-10-27
-- Last decision: 2026-11-03 — pending steer before final commit continues the same Turn
+- Last decisions: 2026-11-03 — pending steer before final commit continues the same Turn; ordinary Tool errors return to the model without automatically ending the Turn
 - Scope: execution state, input, model and Tool ordering, cancellation, finalization, and interruption recovery
 
 ## 1. Core model
@@ -115,6 +115,16 @@ The call intent is committed before side effects. If the process dies afterward,
 - Later independent read-only Tools may be parallelized only if a real need appears. The baseline is serial execution for deterministic ordering and resource safety.
 
 Every attempted Tool Call counts toward the current budget, including failed or rejected calls. Parallel calls count individually when introduced.
+
+<a id="ordinary-tool-errors"></a>
+
+### 5.1 Ordinary Tool errors and continuation
+
+**Confirmed on 2026-11-03:** an ordinary Tool error is committed as the correlated Tool Result and returned to the model in the same Turn/Run. It does not by itself end the Turn. For example, a file read may report a missing path, or a test command may return failing checks; the model can inspect the error, change its approach, request another Tool call, or explain why it cannot continue and produce a final-response candidate.
+
+This confirms the existing normal-error direction. It does not authorize blindly replaying a failed call or hiding a failure behind a success result. User cancellation, unknown side effects, invalid Run ownership, and failure to commit the result retain their separate handling; a required persistence failure prevents the next model request. Whether a failed call stops the remaining calls in the same model-proposed batch is still open and is not decided by this continuation rule.
+
+Verification should show a missing-file result followed by a corrected model action, a failed test followed by a model-directed repair, and an unrecoverable ordinary Tool error followed by an honest final reply. In every case the next model request sees the committed result with the original call identity. Implementation and runtime verification remain pending.
 
 ## 6. Steer and input buffer
 
