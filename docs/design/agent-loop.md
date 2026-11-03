@@ -2,7 +2,7 @@
 
 - Status: M4 state-machine and lifecycle baseline; ReAct execution-protocol follow-up open (2026-11-02)
 - Date: 2026-10-27
-- Last decisions: 2026-11-03 — pending steer before final commit continues the same Turn; ordinary Tool errors continue the batch and return to the model; dependent actions require separate model calls within the same Turn
+- Last decisions: 2026-11-03 — pending steer before final commit continues the same Turn; ordinary Tool errors continue the batch; dependent actions require separate model calls; timeout with unknown effects closes the batch and permits same-Turn inspection only under Runtime admission
 - Scope: execution state, input, model and Tool ordering, cancellation, finalization, and interruption recovery
 
 ## 1. Core model
@@ -42,10 +42,10 @@ Streaming
   → WindingDown         on final response commit, cancellation, or terminal error
 
 ExecutingTool
-  → Streaming           after Tool Results are committed
-  → Compacting          when preflight requires compaction before the next request
+  → Streaming           after batch results are committed and Runtime permits continuation
+  → Compacting          when continuation is permitted and preflight requires compaction
   → WaitingRequest      when runtime needs an answer
-  → WindingDown         on cancellation or terminal error
+  → WindingDown         on cancellation, terminal error, or inability to continue safely
 
 Compacting
   → Streaming           after a valid compaction event is committed
@@ -86,6 +86,8 @@ accept input
 ```
 
 Execution resources are not the Session writer lease. The lease is released only after delivery closes or a durable delivery owner has taken responsibility. A later Turn must not overtake the previous final response.
+
+The sequence above is the ordinary success path. If execution or its effects remain uncertain, finalization records that uncertainty and releases only resources known to be safe to reuse. Unresolved resources retain enforceable restrictions and explicit responsibility for settlement; ending a Run or releasing its Session writer lease does not make them available (§5.3).
 
 A delivery failure retries only delivery with the same `final_message_id`; it never reruns the model. A response and its corresponding execution events are committed before final delivery, so a crash cannot produce “the user saw it but the system never saved it.”
 
@@ -135,9 +137,34 @@ The model must place calls in the same batch only when neither the parameters no
 
 This dependency rule is part of the model-facing Tool-use contract, reflected in [System Prompt](system-prompt.md). It is not a Runtime proof that calls are independent. The baseline does not infer dependencies from Tool names or arguments, or introduce a dependency graph or batch transaction. Tool-specific authorization and necessary preconditions remain enforceable by ToolRuntime.
 
-Cancellation, unknown side effects, invalid ownership, and required persistence failure are not ordinary Tool errors and must not use this continuation rule. A required result commit must succeed before the next call starts. Malformed calls, per-Tool error representation, timeout classification, and the full unknown-outcome policy still need their own contracts; this decision does not silently resolve them. Existing cancellation settlement and no-replay recovery rules remain in force.
+Cancellation, unknown side effects, invalid ownership, and required persistence failure are not ordinary Tool errors and must not use this continuation rule. A required result commit must succeed before the next call starts. Timeout and unknown-outcome behavior is defined in §5.3. Malformed calls, exact per-Tool result formats, and resource mechanisms still need their own contracts. Existing cancellation settlement and no-replay recovery rules remain in force.
 
 Verification must cover an ordinary failure in A followed by an independent success in B, preservation of both call/result identities, and no automatic replay of A. Cancellation or required-commit failure must prevent dispatch of unstarted calls under their existing rules. Model scenarios must also verify that a failed edit leads to a new model decision before any dependent validation action, within the same Turn/Run. Executor tests alone cannot establish that the model batches correctly. Implementation and runtime verification remain pending; the [Hermes/Yomi comparison](../research/2026-11-03-tool-batch-failures.md) records the evidence and alternatives.
+
+<a id="tool-timeout-outcomes"></a>
+
+### 5.3 Tool timeouts and unknown outcomes
+
+**Confirmed on 2026-11-03:** a timeout means the expected complete result was not obtained before the deadline. It does not prove failure, rollback, or termination. ToolRuntime must distinguish whether execution has stopped from what is known about its effects. Terminating a process does not undo a file write; closing an HTTP connection does not prove a remote comment was not created.
+
+At timeout, ToolRuntime requests supported cancellation and performs bounded cleanup while collecting actual results, partial output, asset references, and termination evidence. A reliable result obtained during cleanup takes precedence over a synthetic timeout result. Cleanup outcomes must be recorded honestly; merely sending a cancellation signal or abandoning a wait does not establish that execution has stopped or been isolated.
+
+| Established facts after timeout handling | Batch and Turn behavior |
+|---|---|
+| Execution has stopped, and the Tool contract plus observed facts rule out unknown effects | Commit the actual result. If it is a timeout failure, use ordinary-error continuation (§5.2); a real success is retained as success. A genuinely read-only query that has exited is an example, not a classification inferred from a Tool name or shell command text. |
+| Effects remain unknown | Close the current batch: retain completed results, record the affected call's uncertainty, and give each unstarted call a correlated not-executed result with the reason. Do not automatically resume that batch. |
+| Unknown effects, but execution has exited or is reliably isolated and an inspection can pass Runtime admission | After all batch dispositions are committed, return the facts to the model in the same Turn/Run so it can inspect actual state before deciding further action. Inspections and any subsequent work are new model-proposed calls. |
+| Old execution cannot be confirmed stopped or isolated, preventing safe continuation | Do not dispatch conflicting operations. Close the batch and enter WindingDown with an honest blocked outcome; do not restart execution from finalization. Known partial or complete results remain recorded even when resource uncertainty prevents continuation. |
+
+Same-Turn inspection requires valid Run ownership, successful required commits, no user cancellation, and Runtime enforcement of resource restrictions. If execution has exited or been isolated but no inspection can be admitted, enter WindingDown and report the unresolved result; termination alone does not make the effect known. A Tool's timeout is not a user `/stop`; `/stop` follows cancellation finalization and cannot trigger another model request or inspection. Process-start recovery also retains its no-automatic-resume rule (§10).
+
+The model-facing Tool Result must state what is unknown, whether execution is known to have exited or been isolated, and what partial output or other evidence is available. Uncertainty cannot exist only in an internal field stripped by a Provider adapter. Unknown writes are not automatically retried. Any proposed retry must satisfy Runtime admission and have evidence from current state or a Tool-specific idempotency guarantee; a lookup that finds nothing may be inconclusive under remote propagation delays. An operation identity helps correlate evidence but alone does not prove a retry safe.
+
+Resource restrictions remain effective across later Turns, other Sessions, and process recovery until verified termination/isolation and resource checks permit reuse. Explicit responsibility transfer preserves those restrictions; it does not itself establish that reuse is safe. Closing a Run, releasing a writer lease, or closing a local connection must not clear restrictions by itself. Exact ownership, persistence, isolation, and release protocols belong to T3/T4; no background recovery scheduler or automatic replay is introduced here.
+
+ToolRuntime owns execution/cleanup evidence and resource admission. The Tool batch flow owns correlated result and not-executed records; the driver chooses permitted continuation or finalization. Required commit failure prevents both another Tool dispatch and another model request. Event fields, numeric deadlines, per-Tool guarantees, and Provider rendering remain implementation contracts to specify.
+
+Verification must cover a stopped read-only query, a remote write with a lost response, a terminated process with partial writes, an uncooperative execution, a real result arriving during cleanup, and preservation of partial output. Check all call/result identities, no automatic replay or old-batch resumption, model-visible uncertainty, `/stop` taking precedence, and resource restrictions surviving Run closure and recovery. Implementation and runtime/model validation remain pending. The [source comparison](../research/2026-11-03-tool-batch-failures.md#tool-timeout-outcomes) records the basis and limits of this decision.
 
 ## 6. Steer and input buffer
 
@@ -220,7 +247,7 @@ A small `request_user_input` capability may create one such request for a single
 
 If the final response was already committed, stop is too late and the Turn completes rather than being rewritten as cancelled.
 
-A stop is not reported complete until the current execution has exited or its uncertainty is recorded, partial/cancelled/unknown facts are saved, and execution resources are released. Later ordinary input starts a new Turn with a new `run_id`; late events from the old Run are discarded or recorded only as old-Run diagnostics.
+A stop is not reported complete until the current execution has exited or its uncertainty is recorded, partial/cancelled/unknown facts are saved, and resources are either safely released or retained under enforceable restrictions with explicit settlement responsibility (§5.3). It must not claim unresolved execution has terminated. Later ordinary input starts a new Turn with a new `run_id`; late events from the old Run are discarded or recorded only as old-Run diagnostics and cannot clear resource restrictions without verified settlement.
 
 ## 10. Failure and interruption matrix
 
@@ -232,8 +259,8 @@ A stop is not reported complete until the current execution has exited or its un
 | Model produced output but it was never committed | Do not deliver or treat it as an authoritative response; old Run is interrupted |
 | Complete model response committed, but no final decision committed | Retain the response as model history; it is not eligible for final delivery. Recover the interrupted Run and accepted-input facts without automatically continuing the old execution |
 | Tool Call intent committed but execution never started | Mark interrupted; never auto-execute on recovery |
-| Tool started but no result was committed | Mark outcome unknown; subsequent Turns should inspect actual state rather than blindly replay |
-| Tool returned but its result could not be committed | Do not continue to the next model request as if the result were authoritative |
+| Process interruption after a Tool started but before its result was committed | Mark outcome unknown; subsequent Turns should inspect actual state rather than blindly replay. This recovery case does not authorize the live same-Turn inspection path in §5.3 |
+| Tool returned but its result could not be committed | Do not dispatch the next Tool or model request as if the result were authoritative |
 | Compaction failed or was not committed | Keep the previous projection and do not commit partial compaction |
 | Final response committed but not delivered | Recover by `final_message_id` and retry delivery only |
 | Delivery succeeded externally but receipt was not committed | Mark delivery_unknown; use idempotency or lookup where possible and never rerun the model |
@@ -242,7 +269,7 @@ On process start, SessionManager:
 
 1. Finds Runs with start records but no closing records.
 2. Checks whether any real execution is still alive instead of trusting old `running` fields.
-3. Appends `run_interrupted` for dead executions and releases stale leases.
+3. Appends `run_interrupted` for dead executions and releases stale writer leases without treating unresolved resources as free; reestablishes their restrictions from committed facts before allowing resource reuse.
 4. Rebuilds the current projection from Trajectory without replaying side effects.
 5. Handles committed-but-undelivered final messages by `final_message_id`.
 6. Leaves unknown Tool outcomes unknown and invalidates stale WaitingRequests.
@@ -279,8 +306,8 @@ AgentLoop presents a small interface for driving one Run using an acquired Sessi
 | Loop driver | Current Run's execution sequencing, legal AgentState transitions, safe model boundaries, and entry into mandatory finalization | Owns the single live state transition path; delegates complete operations and consumes their explicit outcomes |
 | Input handling | Selecting ordered pending steer at a safe boundary; validating and routing answers to the current WaitingRequest | Uses the Session-owned Mailbox and request identity; never creates another queue or independently starts a Turn |
 | Model invocation | One admitted logical model request, Provider attempts, streaming, usage, bounded retry, and partial-output classification | Returns a complete response, cancellation/failure, or a need to rebuild the request; never starts another Run or dispatches Tools |
-| Tool batch execution | Executing the committed call intents in order; correlating each Result; returning a suspended request, completed batch, cancellation, or failure | Calls ToolRuntime for actual execution and resource handling; does not implement Tool-specific behavior or run the next model request |
-| Finalization | Settling incomplete calls, committing final facts, releasing execution resources, and closing or durably handing off final delivery | One mandatory path for normal completion, stop, and failure; the driver completes it before SessionManager releases the writer lease |
+| Tool batch execution | Executing committed call intents in order; correlating results and not-executed dispositions; returning a suspended request, completed batch, batch closed with uncertainty, cancellation, or failure | Uses ToolRuntime execution/resource evidence; unknown closes the batch, and the driver decides permitted inspection or finalization under §5.3. Does not run the next model request |
+| Finalization | Settling incomplete calls, committing final facts, releasing safe resources while retaining unresolved restrictions/ownership, and closing or durably handing off final delivery | One mandatory path for normal completion, stop, and failure; the driver completes it before SessionManager releases the writer lease |
 
 The driver should read as the execution protocol: obtain eligible input, assemble and admit a request, invoke the model, handle the returned Tools or final response, and finalize. Provider protocol handling, Tool-specific branches, SQL, and Feishu rendering live in the modules that own them.
 
@@ -300,7 +327,7 @@ ContextBuilder, Compactor, ModelProvider adapters, ToolRuntime, Session Store, a
 - Model invocation retries identical bytes only under the current M5 rules. If new steer requires a changed request, it yields to the driver for input injection, ContextBuilder/preflight, and a new logical model-call identity within the same Run. Partial output follows the interruption rules; it is not silently resent as an untouched request.
 - WaitingRequest retains its originating Tool/model continuation. An answer resumes that operation rather than calling the Tool again. Input handling validates identity and shape; the driver controls the resulting AgentState transition. The remaining free-text answer-versus-guidance UX must still be closed in the channel contract.
 - Stop signals reach the active model, Tool, compactor, or wait promptly through the same Run cancellation mechanism. Propagating that signal does not grant a background callback authority to mutate Run state. Cancellation observations return to the owning flow and converge on finalization; cleanup and required writes must still execute after cancellation is requested.
-- Finalization is one module, not one indivisible step. Its checkpoints and execution handles make incomplete cleanup, unknown outcomes, and delivery-only retries distinguishable. Required cleanup has a bounded deadline independent of the cancelled execution signal; concrete deadlines belong to resource design. Repeated settlement checks committed identities and progress to avoid repeating completed effects. Process-start recovery can reuse safe settlement and delivery operations from committed facts without resuming the old instruction pointer or rerunning side effects.
+- Finalization is one module, not one indivisible step. Its checkpoints and execution handles make incomplete cleanup, unknown outcomes, and delivery-only retries distinguishable. Required cleanup has a bounded deadline independent of the cancelled execution signal; concrete deadlines belong to resource design. Unresolved resource restrictions/ownership outlive Run finalization when necessary (§5.3). Repeated settlement checks committed identities and progress to avoid repeating completed effects. Process-start recovery can reuse safe settlement and delivery operations from committed facts without resuming the old instruction pointer or rerunning side effects.
 - SessionManager and Store validate Run/lease identity on commits. Late old-Run callbacks cannot bypass that check merely because they originated in a previously valid internal flow.
 
 ### Extraction and verification discipline

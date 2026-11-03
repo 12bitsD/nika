@@ -66,9 +66,9 @@ M5 and M6 may be discussed in parallel after M4 if their inputs stop changing. M
 
 **2026-11-03 普通工具错误已确认：**文件不存在、测试失败等结果先保存并交回模型，由模型决定修正、换方法或说明受阻后结束；错误本身不结束 Turn。详见 [AgentLoop §5.1](../design/agent-loop.md#ordinary-tool-errors)。
 
-**同批继续规则已确认：**普通错误结果提交后，继续按原顺序执行后续获准调用，再将各项结果交回模型；后一个调用的参数或是否执行若依赖前一个的结果/成功，必须分两次模型调用，仍属同一 Turn/Run。详见 [AgentLoop §5.2](../design/agent-loop.md#tool-batch-failure-policy)。串行顺序不代表条件依赖，Runtime 不自动推断依赖。取消、未知副作用、执行权失效和结果保存失败分别处理；坏调用和超时分类仍待讨论。[Hermes/Yomi 源码比较](../research/2026-11-03-tool-batch-failures.md) 保留选择依据与替代方案。
+**同批继续规则已确认：**普通错误结果提交后，继续按原顺序执行后续获准调用，再将各项结果交回模型；后一个调用的参数或是否执行若依赖前一个的结果/成功，必须分两次模型调用，仍属同一 Turn/Run。详见 [AgentLoop §5.2](../design/agent-loop.md#tool-batch-failure-policy)。串行顺序不代表条件依赖，Runtime 不自动推断依赖。取消、未知副作用、执行权失效和结果保存失败分别处理；坏调用和逐工具返回格式仍待讨论。[Hermes/Yomi 源码比较](../research/2026-11-03-tool-batch-failures.md) 保留选择依据与替代方案。
 
-**当前讨论：工具超时与结果未知。** [后续源码证据与候选规则](../research/2026-11-03-tool-batch-failures.md#tool-timeout-outcomes) 区分执行是否退出、业务效果是否已知，以及模型如何核查；unknown 结束本批、受控同 Turn 核查等仍待确认，尚未写入执行基线。
+**工具超时与结果未知已确认：**先区分执行是否退出与业务效果是否已知。已停且没有未知副作用的超时失败按普通错误处理；unknown 结束本批，未启动项记录为未执行，提交后仅在执行退出/可靠隔离且 Runtime 允许核查时继续同一 Turn。无法安全继续则收尾报告受阻；资源限制跨 Turn/Session 保持，不自动恢复旧批次或重试未知写入。详见 [AgentLoop §5.3](../design/agent-loop.md#tool-timeout-outcomes)；[来源比较](../research/2026-11-03-tool-batch-failures.md#tool-timeout-outcomes) 保留依据。具体资源机制、结果字段和运行验证交 T3/T4/T8。
 
 待讨论：
 
@@ -99,7 +99,7 @@ M5 and M6 may be discussed in parallel after M4 if their inputs stop changing. M
 
 - Catalog：每个 Tool 的 schema/description、返回值与错误、调用 ID、取消/超时、部分成功/未知、大结果示例；区分调用格式校验、运行前授权与资源准入，明确被拒调用如何反馈和计数。
 - Trust：发起人/事件来源与当前有效授权如何绑定；进程凭据、shell/file/network、Browser 登录态怎样约束；Wiki 的 curate/behavior 权限怎样避免被通用文件或 shell 操作绕过。此授权契约也供入口、Session 查询/导出和 Wiki 发布使用，不能只存在于 ToolRuntime 内部。Mandate 的授权留痕作为 P3 候选，目标仍可通过可信 steer 更新。
-- Resources：workspace、进程树、browser context/profile、共享桌面与 Wiki writer 的 owner、互斥、期限、停止与失联处理；跨 Session 并行可能竞争同一资源，不能只依赖 Session 内串行。
+- Resources：workspace、进程树、browser context/profile、共享桌面与 Wiki writer 的 owner、互斥、期限、停止与失联处理；跨 Session 并行可能竞争同一资源，不能只依赖 Session 内串行。按已确认 §5.3，补齐未知执行的隔离/不可用状态、跨 Turn/Session/重启保持、责任接管与有证据的释放协议。
 - Long operation：等待、进度、取消反馈和未知结果怎样回到 T1；如采用后台 job，另补 handle、完成事件、跨 Turn/重启归属及清理，不能只添加一个超时阈值。
 
 关闭产物：逐 Tool 契约表、身份/授权→可用资源表、资源生命周期与失败矩阵。T1 负责 intent/Result 的执行顺序与 commit owner；T3 封装真实执行和资源回收；T4 提供持久提交能力。

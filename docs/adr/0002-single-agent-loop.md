@@ -119,11 +119,13 @@ Mandatory finalization uses `try/finally`:
 
 1. settle incomplete tool calls;
 2. persist authoritative Session and Run events;
-3. release model, Tool, browser, and computer execution resources;
+3. release model, Tool, browser, and computer resources known to be safe to reuse; retain enforceable restrictions and explicit settlement responsibility for unresolved resources;
 4. deliver `final_message_id` and record the delivery result;
 5. mark finalization finished and AgentState `Idle`, then release the Session writer lease.
 
 Execution resources are not the Session writer lease. The lease is released only after delivery closes or a durable delivery owner has accepted responsibility, so a later Turn cannot overtake the previous final response. Delivery failure retries only delivery with the same `final_message_id`; it never reruns the model.
+
+Ending a Run or releasing its writer lease does not make an unresolved resource available. Restrictions survive later Turns, other Sessions, and recovery until verified settlement permits reuse; any responsibility transfer preserves those restrictions, under [AgentLoop §5.3](../design/agent-loop.md#tool-timeout-outcomes). User cancellation does not start same-Turn inspection.
 
 Optional extensions do not own mandatory persistence or cleanup.
 
@@ -308,7 +310,7 @@ Proactive context management is a later, independent mechanism. Its accepted val
 | `pro` | 200 | 20 min | 32K tokens | 40 KB |
 | `promax` | 800 | 60 min | 64K tokens | 100 KB |
 
-`pro` is the default. Tool-call counts and time budgets are **soft optimization signals, not stop conditions**. Exceeding them never forcibly terminates a Run; Runtime marks `over_budget` and reminds the Agent to assess whether to continue, change approach, or wrap up. Hard stops remain limited to explicit cancellation, per-call timeouts, Provider constraints, or terminal runtime failures. Ordinary Tool errors do not themselves stop the batch or Turn; dependent actions require separate model calls under [AgentLoop §5.2](../design/agent-loop.md#tool-batch-failure-policy). Per-call timeout classification and its effect on the batch remain separate from this ordinary-error rule.
+`pro` is the default. Tool-call counts and time budgets are **soft optimization signals, not stop conditions**. Exceeding them never forcibly terminates a Run; Runtime marks `over_budget` and reminds the Agent to assess whether to continue, change approach, or wrap up. Explicit cancellation, Provider constraints, terminal runtime failures, and inability to continue safely retain their stop rules. A per-Tool timeout initiates bounded cleanup and outcome classification; it does not automatically end the Turn. Ordinary errors continue under [AgentLoop §5.2](../design/agent-loop.md#tool-batch-failure-policy); unknown outcomes close the batch and permit same-Turn inspection only under the conditions in [§5.3](../design/agent-loop.md#tool-timeout-outcomes). Dependent actions still require separate model calls.
 
 `configure_budget(scope=run|session)` applies after its Tool Result and `budget_changed` event commit, to the next Tool/model operation. Run scope changes only the current Run; Session scope changes defaults for future Runs. In-flight operations are unchanged. The result returns `cap`, `used`, `remaining`, and a short efficiency hint such as preferring precise queries, avoiding repeated reads, and verifying before wrapping up. No administrator hard ceiling is required.
 

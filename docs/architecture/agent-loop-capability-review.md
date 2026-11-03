@@ -69,13 +69,13 @@ Router/Worker、后台 job、持久事件订阅、独立业务 Watchdog 是可�
 
 2026-11-02 用户指出此前 AgentLoop 没有单独讨论 ReAct；核查确认已有循环骨架，但模型输出到运行决策的协议未完整定义。此前“M4 Done”只适用于已有状态机/生命周期基线，不能代表此协议已关闭。该缺口应先于或结合 Tool Catalog 收敛。
 
-2026-11-03 已确认：[正常结束前检查 pending steer](../design/agent-loop.md#normal-turn-completion)，以及 [普通工具错误后的同批继续规则](../design/agent-loop.md#tool-batch-failure-policy)。已接纳、未注入的 steer 继续同 Turn/Run；final commit 后接纳的输入归下一 Turn。普通错误提交后继续同批调用；有结果或成功依赖的动作分两次模型调用，仍在同一 Turn/Run。具体事务、工具错误分类及运行验证待实现；下表保留其余协议缺口。
+2026-11-03 已确认：[正常结束前检查 pending steer](../design/agent-loop.md#normal-turn-completion)、[普通工具错误后的同批继续](../design/agent-loop.md#tool-batch-failure-policy)，以及 [超时与结果未知的处理](../design/agent-loop.md#tool-timeout-outcomes)。已接纳、未注入的 steer 继续同 Turn/Run；final commit 后接纳的输入归下一 Turn。普通错误提交后继续同批调用；有结果或成功依赖的动作分两次模型调用。超时导致 unknown 则结束本批，提交后仅在 Runtime 允许时同 Turn 核查，否则收尾报告受阻，保留资源限制。具体事务、逐工具格式与资源机制及运行验证待实现；下表保留其余协议缺口。
 
 | 契约 | 必须覆盖 | 关闭产物 |
 |---|---|---|
 | 响应分类 | text、tool calls、混合输出、空响应、refusal、长度截断、流中断与 Provider 终止信号；哪些文字属于过程或最终交付 | Provider 原生响应 → 统一逻辑结果 → driver 动作表；不从自然语言“完成了”猜终态 |
 | Action 可执行条件 | 完整解析、合法工具/参数/调用 ID；重复 ID、坏 JSON、截断调用；多调用的完整性与执行顺序 | 调用校验与错误反馈契约；在完整校验和 intent commit 前不执行流式半成品 |
-| Observation | 成功、失败、部分成功、未知、取消；Tool Call/Result 配对；大输出和多模态引用；部分成功、未知和取消等特殊结果的后续动作 | 可回放为合法模型消息的观察样例；普通错误续调和同批继续已定，工具错误与持久化失败分开处理 |
+| Observation | 成功、失败、部分成功、未知、取消的逐工具字段/证据；Tool Call/Result 配对；大输出和多模态引用；已定超时/unknown 规则的 Provider 映射和资源准入 | 可回放为合法模型消息的观察样例；普通错误续调、同批继续及实时超时/unknown 行为已定，不能因映射丢失未知信息；持久化失败单独处理 |
 | 继续与结束 | Tool Result 后续调、WaitingRequest、无输出/截断恢复、最终回复、显式停止、终止错误、无进展 | 决策表与失败路径；业务验收证据独立于模型 end_turn，保持软预算不强停 |
 | 推理相关字段 | API 公开 summary、需原样回传的 opaque/signature 内容、普通正文；各 Provider 续调与压缩要求 | 只处理 Provider 合法提供的数据，不要求完整隐藏思维链，不混入用户回复或 WorkingContext |
 
