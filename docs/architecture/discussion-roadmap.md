@@ -70,6 +70,8 @@ M5 and M6 may be discussed in parallel after M4 if their inputs stop changing. M
 
 **工具超时与结果未知已确认：**先区分执行是否退出与业务效果是否已知。已停且没有未知副作用的超时失败按普通错误处理；unknown 结束本批，未启动项记录为未执行，提交后仅在执行退出/可靠隔离且 Runtime 允许核查时继续同一 Turn。无法安全继续则收尾报告受阻；资源限制跨 Turn/Session 保持，不自动恢复旧批次或重试未知写入。详见 [AgentLoop §5.3](../design/agent-loop.md#tool-timeout-outcomes)；[来源比较](../research/2026-11-03-tool-batch-failures.md#tool-timeout-outcomes) 保留依据。具体资源机制、结果字段和运行验证交 T3/T4/T8。
 
+**当前讨论：工具调用的执行前校验。** [Hermes/Yomi 比较与候选规则](../research/2026-11-03-tool-call-validation.md) 区分可关联的单项名称/参数错误，以及响应截断、调用身份歧义等整批协议错误。推荐先检查整批完整性与身份，再逐项拒绝无效调用；协议不完整则整批不执行。该选择尚未确认，Provider 修复请求与合法反馈需和 T2 联合收敛。
+
 待讨论：
 
 - ReAct 决策表：完整/混合/空/截断/拒绝/中断响应怎样转为调用、Observation、续调或收尾；模型终止、业务完成和投递完成分别怎样表达。
