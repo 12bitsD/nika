@@ -68,6 +68,8 @@ M5 and M6 may be discussed in parallel after M4 if their inputs stop changing. M
 
 **同批继续规则已确认：**普通错误结果提交后，继续按原顺序执行后续获准调用，再将各项结果交回模型；后一个调用的参数或是否执行若依赖前一个的结果/成功，必须分两次模型调用，仍属同一 Turn/Run。详见 [AgentLoop §5.2](../design/agent-loop.md#tool-batch-failure-policy)。串行顺序不代表条件依赖，Runtime 不自动推断依赖。取消、未知副作用、执行权失效和结果保存失败分别处理；坏调用和超时分类仍待讨论。[Hermes/Yomi 源码比较](../research/2026-11-03-tool-batch-failures.md) 保留选择依据与替代方案。
 
+**当前讨论：工具超时与结果未知。** [后续源码证据与候选规则](../research/2026-11-03-tool-batch-failures.md#tool-timeout-outcomes) 区分执行是否退出、业务效果是否已知，以及模型如何核查；unknown 结束本批、受控同 Turn 核查等仍待确认，尚未写入执行基线。
+
 待讨论：
 
 - ReAct 决策表：完整/混合/空/截断/拒绝/中断响应怎样转为调用、Observation、续调或收尾；模型终止、业务完成和投递完成分别怎样表达。
