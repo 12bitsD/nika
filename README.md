@@ -68,6 +68,7 @@ The feature list records **current decisions, not implemented capabilities**.
 
 - One Feishu entry maps to one Session: private chat, group Thread, partial document comment, or whole-document comment area.
 - Ordinary messages all use steer semantics: idle input starts a new Turn; active-Turn input waits in the ordered buffer for the next safe model boundary. There is no independent-task `/queue` or read-only `/btw`.
+- A Turn can include multiple user messages. Before normal completion, accepted pending steer continues the same Turn even when the model returned no Tool Calls; input accepted after final commit belongs to a later Turn.
 - `WaitingRequest` is created only when runtime needs an answer to continue; the validated answer resumes the original request rather than starting a new Turn.
 - `/stop` cancels the current AgentLoop and its tools; a later ordinary message starts a new Turn.
 - Historical tool calls are never replayed automatically after cancellation or restart.

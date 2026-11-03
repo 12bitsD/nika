@@ -97,13 +97,15 @@ All ordinary messages use steer semantics; there is no separate independent-task
 
 During model streaming, steer waits for the current response; during Tool execution it waits for the Tool Result to be saved. After a final response is committed, further steer is deferred to the next Turn rather than reversing WindingDown into Streaming. Multiple steer inputs preserve their original order and may be injected as one batch. Acceptance and actual injection are recorded separately in Trajectory, with the corresponding model_call_id. A later independent request can therefore redirect the current task; it is not guaranteed a separate FIFO Turn.
 
+**2026-11-03 clarification:** a Turn includes its initiating input and the steer accepted for that execution; it is not one Turn per message. A complete normal response without Tool Calls is a final candidate. If accepted steer is still pending, inject it and continue the same Turn/Run with a rebuilt, preflighted request. Only an empty pending-input check coordinated with durable input acceptance permits final commit. Saving model-response facts alone does not commit the Turn's final answer. The input/final-commit ordering and cancellation exception are defined in [AgentLoop §6.1](../design/agent-loop.md#normal-turn-completion); exact transactions remain M7 work.
+
 `/stop` cancels the current AgentLoop and propagates cancellation to the model request, tools, and child processes. A later ordinary message starts a new Turn with steer semantics. No special retry command is required. Pending, not-yet-injected steer remains available for a later Turn unless the user explicitly clears it.
 
 Historical tool calls are never replayed automatically after cancellation or restart. Incomplete calls are recorded as cancelled or unknown.
 
 ### WaitingRequest
 
-A `WaitingRequest` is created only when the runtime explicitly needs user input to continue the current execution. An ordinary question at the end of a model response does not create this state; the user's reply to such a question starts a new Turn.
+A `WaitingRequest` is created only when the runtime explicitly needs user input to continue the current execution. An ordinary question in model text does not create this state; its reply follows normal steer semantics before final commit and belongs to a later Turn after final commit.
 
 Each Session has at most one pending request. The request records its `request_id`, Session, Turn, Run, originating Tool or Agent, response shape, and the state to resume. While it is pending, the next ordinary free-text message is treated as the answer rather than entering the steer buffer. Option callbacks carry the `request_id` directly. Other steer input remains task guidance rather than an answer.
 

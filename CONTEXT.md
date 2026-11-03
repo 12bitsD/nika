@@ -25,15 +25,15 @@ This file is the project's canonical glossary. It contains domain concepts only,
 | SessionManager | The coordinator that resolves an entry to a Session, enforces single-writer execution, and creates or ends Runs. |
 | Session | A continuing conversation and its durable identity plus append-only Trajectory. Current WorkingContext, budget, workspace, and delivery state are derived from events rather than stored as a second persistent Snapshot. |
 | Session projection | The current model-facing view derived from Trajectory. It starts at the latest compaction event and applies later events without replaying their side effects. |
-| Turn | The complete handling of one user input until the AgentLoop becomes idle, including model calls, tool calls, waiting, and finalization. |
-| Run | One concrete execution attempt. A later input starts a new Turn rather than requiring a special retry workflow. |
+| Turn | One execution cycle from an initiating user input until the AgentLoop becomes idle, including any steer accepted for that cycle, model calls, tool calls, waiting, and finalization. Multiple user messages can belong to one Turn. |
+| Run | One concrete execution attempt within a Turn. Steer-driven model continuations keep the same Run. Input accepted after final commit, or a new ordinary input after cancellation, starts a later Turn rather than requiring a special retry workflow. |
 | RunStatus | The externally meaningful execution state: `Running` or `Stopped`. Diagnostic detail may be recorded without defining a separate user workflow for each reason. |
-| Interruption | An unclosed old Run caused by process failure or an unknown execution loss. Recovery closes the old Run and starts a new Turn from committed facts; it does not resume historical side effects. |
+| Interruption | An unclosed old Run caused by process failure or an unknown execution loss. Recovery closes the old Run and rebuilds committed facts without replaying historical side effects. Starting a later Turn requires a separate input/start condition; rebuilding facts does not itself start execution. |
 | AgentState | What the AgentLoop is currently doing: `Idle`, `Streaming`, `ExecutingTool`, `Compacting`, `WaitingRequest`, or `WindingDown`. |
 | Compactor | The internal mechanism that uses a dedicated Compaction System Prompt to reconstruct current task state by future action value, validates the result, and appends a compaction event. It is not a Tool and never rewrites old Trajectory. |
 | Cache boundary | The start of a new provider-cache prefix. Compaction and explicit model, Tool, or System Prompt changes create one; ordinary messages and dynamic Skill or WorkingContext updates are appended to preserve the previous prefix. |
 | Preflight | The admission check before each model request. It computes complete input and the active output reserve, enters Compacting at 75% input occupancy or when `I + O` exceeds Provider capacity, and rechecks after compaction. |
-| WaitingRequest | A runtime-created request for user input that blocks the current execution. At most one is pending per Session; its validated answer resumes the original Tool Call or model request rather than starting a new Turn. Ordinary end-of-turn questions do not create this state. |
+| WaitingRequest | A runtime-created request for user input that blocks the current execution. At most one is pending per Session; its validated answer resumes the original Tool Call or model request rather than starting a new Turn. An ordinary question does not create this state; replies follow normal steer/final-commit ordering. |
 | WindingDown | Mandatory finalization is still in progress; execution is not yet fully stopped. |
 
 ## Input and control
@@ -48,6 +48,7 @@ This file is the project's canonical glossary. It contains domain concepts only,
 | Budget profile | A named collection of soft resource guidance: `lite`, `pro`, or `promax`. Profiles are Agent-adjustable configuration, not authorization boundaries or hard stop limits. |
 | Time budget | Soft wall-clock guidance for a Run, separate from per-request and per-Tool timeouts. Expiry reminds the Agent to assess progress rather than forcibly terminating work. |
 | Finalization | Mandatory work after output stops: settling incomplete tool calls, saving authoritative state, releasing resources, and only then publishing completion. |
+| Final response commit | The durable decision that a committed model response is the Turn's final reply. A normal no-Tool response remains a candidate until accepted pending steer has been handled. Input accepted after final commit belongs to a later Turn. |
 
 ## Capabilities
 

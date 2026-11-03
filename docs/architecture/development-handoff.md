@@ -44,8 +44,9 @@ Wiki：独立、经授权维护的长期知识；不从 Trajectory 自动提升�
 | 产品与运行环境 | 一套 Loop 同时处理 chat/coding；Bot、浏览器、虚拟桌面同容器；Feishu 为主入口 | [ADR §1–3](../adr/0002-single-agent-loop.md) |
 | Session / Turn / Run | 一个入口映射一个 Session；Turn 是输入到收尾，Run 是具体执行尝试。model retry 不创建新 Run；旧 Run 迟到事件不能污染新 Run | [M4 §1–2](../design/agent-loop.md#2-identities)、[术语](../../CONTEXT.md) |
 | 普通输入 | Idle 时开新 Turn；活跃时全部为 steer，按序在安全模型边界注入。final 已提交后留给下一 Turn；没有独立任务 FIFO 或 `/queue` | [M4 §6](../design/agent-loop.md#6-steer-and-input-buffer) |
+| 正常结束前的新输入 | 2026-11-03 确认：完整无 Tool 响应先作最终回复候选；已有 pending steer 则继续同 Turn/Run。输入接纳与 final commit 保持一致先后顺序；提交后输入归下一 Turn | [M4 §6.1](../design/agent-loop.md#normal-turn-completion) |
 | 工具与副作用 | 首版按模型给出的顺序串行执行；先持久化 intent，再执行，再提交 Result。大输出先持久化 asset 再引用；取消和重启不自动重放历史 Tool | [M4 §5](../design/agent-loop.md#5-tool-calls) |
-| 等待与停止 | WaitingRequest 由 runtime 显式创建，最多一个；回答恢复原 request，须校验身份/有效性。普通末尾提问不会阻塞 Loop。`/stop` 取消当轮及子进程，保留事实与未注入 steer | [M4 §8–10](../design/agent-loop.md#8-waitingrequest) |
+| 等待与停止 | WaitingRequest 由 runtime 显式创建，最多一个；回答恢复原 request，须校验身份/有效性。普通文字提问不创建等待，回复按 final commit 前后的 steer 规则处理。`/stop` 取消当轮及子进程，保留事实与未注入 steer | [M4 §8–10](../design/agent-loop.md#8-waitingrequest) |
 | 最终交付 | `try/finally` 负责必要收尾；执行资源与 Session writer 分开释放。投递失败只重投相同 final_message_id，不重跑模型 | [M4 §4](../design/agent-loop.md#4-durable-event-and-delivery-order) |
 | 事实与恢复 | session_events 是唯一执行历史权威；Conversation 是投影，无另一套持久 Snapshot。SQLite WAL + synchronous=FULL；大资产独立存储 | [ADR §5/8](../adr/0002-single-agent-loop.md) |
 | 模型上下文 | tools[] + system + messages[]；同 compaction boundary、固定 revisions 下，旧 provider-visible 内容不变，只追加。不同模型/Provider 的映射与缓存策略独立处理 | [ContextBuilder](../design/context-builder.md) |

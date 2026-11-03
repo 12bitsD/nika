@@ -2,6 +2,7 @@
 
 - Status: M4 state-machine and lifecycle baseline; ReAct execution-protocol follow-up open (2026-11-02)
 - Date: 2026-10-27
+- Last decision: 2026-11-03 — pending steer before final commit continues the same Turn
 - Scope: execution state, input, model and Tool ordering, cancellation, finalization, and interruption recovery
 
 ## 1. Core model
@@ -19,7 +20,7 @@ Ordinary chat and coding use this same loop. There is no external coding harness
 ## 2. Identities
 
 - `session_id`: durable conversation identity.
-- `turn_id`: one accepted input through finalization.
+- `turn_id`: one execution cycle from an initiating input through finalization, including any steer accepted for that cycle. A Turn can contain multiple user messages, model calls, and Tool calls.
 - `run_id`: one concrete execution attempt within a Turn; the normal path has one Run per Turn.
 - `model_call_id`: one logical model request. Retries of that request share this identity.
 - `attempt_id` or `attempt_seq`: one Provider attempt within a model call.
@@ -38,7 +39,7 @@ Streaming
   → ExecutingTool       when the model returns Tool Calls
   → Compacting          when preflight requires compaction before the next request
   → WaitingRequest      when runtime needs an answer
-  → WindingDown         on final response, cancellation, or terminal error
+  → WindingDown         on final response commit, cancellation, or terminal error
 
 ExecutingTool
   → Streaming           after Tool Results are committed
@@ -58,7 +59,7 @@ WindingDown
   → Idle                after finalization and delivery close
 ```
 
-`WindingDown` never returns to `Streaming`. Input that arrives after the final response is committed waits for a later Turn.
+`WindingDown` never returns to `Streaming`. A complete model response without Tool Calls is a final-response candidate until the normal completion check in §6.1 permits final commit. Input accepted after that commit waits for a later Turn.
 
 Externally, `RunStatus` remains `Running` or `Stopped`. Detailed outcomes such as failed, cancelled, interrupted, unknown, and delivery_unknown are diagnostic outcomes, not separate user workflows. `RunStopped` does not by itself mean the user has received the response.
 
@@ -73,6 +74,8 @@ accept input
 → append model_call and Provider attempt
 → stream deltas to the renderer only
 → commit the complete assistant response and Provider usage
+→ check pending steer and commit the final response decision in Session input order
+  (pending steer instead continues the same Run via §6.1)
 → Streaming → WindingDown
 → settle any incomplete Tool Calls
 → persist final execution facts
@@ -85,6 +88,8 @@ accept input
 Execution resources are not the Session writer lease. The lease is released only after delivery closes or a durable delivery owner has taken responsibility. A later Turn must not overtake the previous final response.
 
 A delivery failure retries only delivery with the same `final_message_id`; it never reruns the model. A response and its corresponding execution events are committed before final delivery, so a crash cannot produce “the user saw it but the system never saved it.”
+
+Committing a complete model response is distinct from committing it as the Turn's final response. The final decision identifies the already committed response for delivery; it does not append a duplicate assistant message. A candidate followed by steer remains in Trajectory and subsequent Conversation context, but is not delivered as a separate final answer. Streamed previews remain provisional.
 
 Trajectory stores complete logical events, not every SSE delta. Streamed deltas are ephemeral presentation events.
 
@@ -121,11 +126,32 @@ All ordinary messages use steer semantics. There is no independent-task FIFO or 
 - During Tool execution, steer waits for the Tool Result to be committed and is included before the next model request.
 - During Provider retry backoff, steer may be injected before the next attempt within the same Run.
 - During compaction, steer waits for the compaction event and is injected afterward.
+- Before normal final commit, accepted pending steer is injected and continues the same Turn/Run, even if the completed model response has no Tool Calls.
 - After a final response is committed, steer waits for a later Turn.
 
 The buffer is required for ordering; it is not a separate independent-task queue. Multiple steer inputs retain original order and may be injected as one batch. `steer_accepted` and `steer_injected` are separate Trajectory events, and the injection records the corresponding `model_call_id`.
 
 Pending, not-yet-injected steer is retained after `/stop` for a later Turn unless explicitly cleared.
+
+<a id="normal-turn-completion"></a>
+
+### 6.1 Normal Turn completion and pending steer
+
+**Confirmed on 2026-11-03:** the user accepted continuing the current Turn when the model is ready to finish but an already received steer has not yet been given to it; input after final commit belongs to a later Turn. This refines the existing safe-boundary rule. It does not close malformed/empty/truncated responses, task verification, or every other ReAct follow-up.
+
+For a complete, normal model response without Tool Calls:
+
+1. Commit the response and usage as model facts. It is a candidate for the final answer, not yet a decision to end the Turn.
+2. Under the Session's coordinated input/final-commit order, check for accepted, not-yet-injected steer. If any is pending, keep the same `turn_id` and `run_id`, append eligible input in order, record its injection identity, rebuild/preflight the request, and make a new logical model call.
+3. Only when that check finds no pending steer may the candidate be committed as the final response and the driver enter `WindingDown`.
+
+The pending-input check and final commit must be serialized with durable input acceptance. A separate queue-empty read followed by an unprotected final write is insufficient. The resulting order must have exactly two outcomes: input accepted first prevents normal final commit and stays in the current Turn; final commit first routes the input to a later Turn. SessionManager / Store will define the exact transaction and lease-fencing mechanism in M7; ingress remains able to accept input without becoming a second execution writer. External message timestamps and completion of the network send do not determine this ordering.
+
+This rule applies to normal completion. Cancellation, terminal failure, or loss of valid Run ownership must not use pending steer to restart work. `/stop` retains not-yet-injected steer under the existing later-Turn rule. Required commits and ownership checks must succeed before another model call or final delivery.
+
+Verification must cover: steer during a no-Tool response; several ordered pending inputs; input racing the final commit; input after final commit while delivery is still pending; and stop with pending steer. Every accepted input must have one recorded disposition, with no duplicate injection or lost message. This is a design decision; implementation and concurrency validation remain pending.
+
+Source comparisons and additional race/cleanup scenarios are recorded in the [Hermes](../research/2026-11-03-hermes-turn-control.md) and [Yomi](../research/2026-11-03-yomi-turn-control.md) notes. Their leftover-input paths are not implementations of this Nika completion rule; no runtime validation was performed in that research.
 
 ## 7. Compaction
 
@@ -143,7 +169,7 @@ Compaction starts on user `/compact`, the 75% input threshold, or a preflight ca
 
 ## 8. WaitingRequest
 
-A WaitingRequest is created only when runtime needs input to continue. An ordinary end-of-turn question does not create this state; its reply starts a new Turn.
+A WaitingRequest is created only when runtime needs input to continue. An ordinary question in model text does not create this state. A reply accepted before final commit follows normal steer semantics in the current Turn; after final commit it belongs to a later Turn.
 
 Each Session has at most one pending request, recording `request_id`, Session, Turn, Run, origin, response shape, and resume state.
 
@@ -181,6 +207,7 @@ A stop is not reported complete until the current execution has exited or its un
 |---|---|
 | Provider attempt failed, timed out, or disconnected | Retry within the same Run within bounds; terminal errors enter finalization |
 | Model produced output but it was never committed | Do not deliver or treat it as an authoritative response; old Run is interrupted |
+| Complete model response committed, but no final decision committed | Retain the response as model history; it is not eligible for final delivery. Recover the interrupted Run and accepted-input facts without automatically continuing the old execution |
 | Tool Call intent committed but execution never started | Mark interrupted; never auto-execute on recovery |
 | Tool started but no result was committed | Mark outcome unknown; subsequent Turns should inspect actual state rather than blindly replay |
 | Tool returned but its result could not be committed | Do not continue to the next model request as if the result were authoritative |
@@ -242,6 +269,7 @@ ContextBuilder, Compactor, ModelProvider adapters, ToolRuntime, Session Store, a
 - The driver owns live AgentState transitions. Flows return explicit outcomes and narrow execution handles rather than sharing a mutable object containing every Session and Run field. Pure transition checks may be private functions; a separate state-machine framework is unnecessary.
 - Input handling owns accepted-to-injected correlation; model invocation owns model-call / attempt records and complete response commits; Tool batch execution owns per-call outcome recording; finalization owns closing execution and delivery facts. SessionManager owns Run creation, writer leases, and process-start recovery. The exact events and transaction groups are defined in M7.
 - Each durable effect has one commit owner. For a response with Tool Calls, commit the response and call intents before dispatch; return committed identities to the Tool batch flow. ToolRuntime returns an execution outcome, including durable asset references where needed; the batch flow records the correlated result. A failed required commit prevents the next side effect or model request.
+- For a normal no-Tool response, model invocation commits the response facts; the driver coordinates the §6.1 pending-input/final-commit decision through Store before entering finalization. The operation must share the input-acceptance order and validate Run ownership; two independently scheduled check/write operations cannot implement it.
 - Runtime observations remain observations until committed. In-memory projections are derived state, not another persistent authority; no internal module keeps its own conflicting copy of Run status, budget, pending input, or delivery state.
 
 ### Retry, waiting, cancellation, and recovery
@@ -271,5 +299,7 @@ Review the structure through its interfaces:
 Recorded on 2026-11-02 after the user identified the missing explicit ReAct design. The model → Tool → Observation → model cycle already exists in §5. The remaining contract is how model outputs become valid runtime decisions, including malformed, partial, and terminal responses.
 
 The open items are response classification, executable Tool Call conditions, correlated Observations, continuation/termination behavior, and Provider-supplied reasoning-related fields. Their required cases and close artifacts are maintained in the [G0 review](../architecture/agent-loop-capability-review.md#react-execution-protocol-gap). This is a design follow-up, not a new Reasoner/Planner module or an implementation claim.
+
+The normal-completion/pending-steer choice is confirmed in [§6.1](#normal-turn-completion) as of 2026-11-03. Other branches remain open; that decision does not certify business success or select a new verification mechanism.
 
 The established lifecycle, serial execution, soft-budget policy, and no-replay recovery rules remain the inputs to this work. A model protocol terminal signal does not certify business success; concrete result validation and user-facing completion claims need task evidence. The [capability comparison](../architecture/agent-loop-capability-review.md) distinguishes existing contracts from proposed additions inspired by the external survey.

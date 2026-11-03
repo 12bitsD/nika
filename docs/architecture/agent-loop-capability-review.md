@@ -69,6 +69,8 @@ Router/Worker、后台 job、持久事件订阅、独立业务 Watchdog 是可�
 
 2026-11-02 用户指出此前 AgentLoop 没有单独讨论 ReAct；核查确认已有循环骨架，但模型输出到运行决策的协议未完整定义。此前“M4 Done”只适用于已有状态机/生命周期基线，不能代表此协议已关闭。该缺口应先于或结合 Tool Catalog 收敛。
 
+2026-11-03 已确认其中一项：[正常结束前检查 pending steer](../design/agent-loop.md#normal-turn-completion)。已接纳、未注入的 steer 继续同 Turn/Run；final commit 后接纳的输入归下一 Turn。模型响应保存与最终提交分开，具体事务和并发验证待实现。下表其他协议仍待收敛。
+
 | 契约 | 必须覆盖 | 关闭产物 |
 |---|---|---|
 | 响应分类 | text、tool calls、混合输出、空响应、refusal、长度截断、流中断与 Provider 终止信号；哪些文字属于过程或最终交付 | Provider 原生响应 → 统一逻辑结果 → driver 动作表；不从自然语言“完成了”猜终态 |

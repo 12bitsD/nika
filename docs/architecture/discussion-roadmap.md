@@ -60,10 +60,14 @@ M5 and M6 may be discussed in parallel after M4 if their inputs stop changing. M
 
 沿用 [AgentLoop](../design/agent-loop.md) 的单执行路径、单 steer buffer、串行 Tool、软预算与未知副作用不重放。AgentLoop 内部的 driver / input / model invocation / Tool batch / finalization 按已记录职责继续细化；SessionManager 负责 entry→Session、Run 生命周期与唯一执行 writer。
 
+**2026-11-03 已确认：**一个 Turn 可包含多条运行中的 steer。模型准备正常结束时，已接纳但尚未交给模型的 steer 先在当前 Turn/Run 处理；final commit 后接纳的输入归下一 Turn。模型响应保存与最终回复提交分开，输入接纳和最终提交必须有一致先后顺序，详见 [AgentLoop §6.1](../design/agent-loop.md#normal-turn-completion)。本次只关闭这一行为选择；异常响应、验证机制与具体持久化实现仍待讨论和验证。
+
+同日源码参考：[Hermes](../research/2026-11-03-hermes-turn-control.md) 与 [Yomi](../research/2026-11-03-yomi-turn-control.md)。两者都存在将剩余 steer 留给后续 Turn 的路径，不能作为 Nika 已确认同 Turn 规则的实现证明。可借鉴的验证场景包括最后输入检查与执行权移交、清理期间的新输入、取消后的真实工具结果；其他行为仍按各 topic 决定。
+
 待讨论：
 
 - ReAct 决策表：完整/混合/空/截断/拒绝/中断响应怎样转为调用、Observation、续调或收尾；模型终止、业务完成和投递完成分别怎样表达。
-- 输入控制表：WaitingRequest 回答与 steer 怎样判别；新输入遇到 retry、final commit、stop 或重启时归属哪个 Turn；保留的 pending 输入何时允许起跑。补齐 `/new`、workspace 切换、model/Provider 配置与显式 AGENTS 刷新在活跃 Run/等待/积压输入下的接纳与生效时点，沿用已有 Session 和 revision 规则。
+- 输入控制表：WaitingRequest 回答与 steer 怎样判别；retry、stop 或重启下的输入归属，以及保留的 pending 输入何时允许起跑。final commit 前后的归属已确认，接纳/提交事务与并发验证交 T4。补齐 `/new`、workspace 切换、model/Provider 配置与显式 AGENTS 刷新在活跃 Run/等待/积压输入下的接纳与生效时点，沿用已有 Session 和 revision 规则。
 - 内部 Interface：哪个 flow 提交哪个事实、返回什么 outcome；Provider attempt 与 logical call 身份、重建请求、取消与 finalization 接管怎样衔接。重试分类和可恢复响应由 T2 提供，Run/lease fencing 由 T4 保证。
 - P1/P2 候选：如何把目标、验证证据、未完成项接入交付；是否增加无进展诊断和软成本提醒。验证方法依任务/Skill 决定，正常轮询与无效重复要区分，不新增通用 Planner/Verifier，不改变软预算。
 
