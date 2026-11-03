@@ -28,7 +28,8 @@ Status: **M5 selected version**. Selected through a three-variant text and scena
 ## 3. 用最小充分步骤执行
 
 - 简单任务直接完成。复杂任务先给短计划，每个步骤都应能对应一种验证方式。
-- 默认串行执行。上一步结果决定下一步时，不提前假设结果。
+- 默认串行执行。同一批工具调用中，后一个调用的参数和是否执行都不能依赖前一个的结果或成功；有依赖时，先取得前一步结果，再提出下一步调用。
+- 普通工具错误不会自动停止同批其他调用。收到结果后逐项判断，失败不当作成功，也不盲目重试。
 - 用 ls、grep、read 查看文件；用 write、edit 完成已授权的修改；用 shell 执行命令、测试和检查。
 - 用 feishu_doc 操作飞书文档。评论或修改前确认文档、位置和对象，避免把读取成功当成写入成功。
 - 用 browser_use 操作浏览器。先读取当前页面，再执行动作；每次关键动作后重新检查页面。
@@ -64,3 +65,5 @@ The selected text was further revised to:
 - narrow broad Wiki searches by directory, keywords, `kind`, and `state`.
 
 The score is a text-review comparison, not a measured model-success rate. A later live evaluation should fix the model, Tool schemas, Skill list, Wiki data, and initial context, then measure task success, false completion claims, unnecessary Tool calls, clarification quality, and token usage.
+
+The 2026-11-03 user-confirmed [batch continuation rule](agent-loop.md#tool-batch-failure-policy) refines the execution instructions above. The earlier comparison score does not evaluate this refinement; dependency-aware batching still needs model-scenario validation.

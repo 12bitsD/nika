@@ -308,7 +308,7 @@ Proactive context management is a later, independent mechanism. Its accepted val
 | `pro` | 200 | 20 min | 32K tokens | 40 KB |
 | `promax` | 800 | 60 min | 64K tokens | 100 KB |
 
-`pro` is the default. Tool-call counts and time budgets are **soft optimization signals, not stop conditions**. Exceeding them never forcibly terminates a Run; Runtime marks `over_budget` and reminds the Agent to assess whether to continue, change approach, or wrap up. Hard stops remain limited to explicit cancellation, per-call timeouts, Provider constraints, or execution failures.
+`pro` is the default. Tool-call counts and time budgets are **soft optimization signals, not stop conditions**. Exceeding them never forcibly terminates a Run; Runtime marks `over_budget` and reminds the Agent to assess whether to continue, change approach, or wrap up. Hard stops remain limited to explicit cancellation, per-call timeouts, Provider constraints, or terminal runtime failures. Ordinary Tool errors do not themselves stop the batch or Turn; dependent actions require separate model calls under [AgentLoop §5.2](../design/agent-loop.md#tool-batch-failure-policy). Per-call timeout classification and its effect on the batch remain separate from this ordinary-error rule.
 
 `configure_budget(scope=run|session)` applies after its Tool Result and `budget_changed` event commit, to the next Tool/model operation. Run scope changes only the current Run; Session scope changes defaults for future Runs. In-flight operations are unchanged. The result returns `cap`, `used`, `remaining`, and a short efficiency hint such as preferring precise queries, avoiding repeated reads, and verifying before wrapping up. No administrator hard ceiling is required.
 

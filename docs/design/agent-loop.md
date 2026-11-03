@@ -2,7 +2,7 @@
 
 - Status: M4 state-machine and lifecycle baseline; ReAct execution-protocol follow-up open (2026-11-02)
 - Date: 2026-10-27
-- Last decisions: 2026-11-03 — pending steer before final commit continues the same Turn; ordinary Tool errors return to the model without automatically ending the Turn
+- Last decisions: 2026-11-03 — pending steer before final commit continues the same Turn; ordinary Tool errors continue the batch and return to the model; dependent actions require separate model calls within the same Turn
 - Scope: execution state, input, model and Tool ordering, cancellation, finalization, and interruption recovery
 
 ## 1. Core model
@@ -101,15 +101,14 @@ The baseline Tool path contains no before/after Hook:
 assistant response with tool_calls
 → commit the assistant message and Tool Call intents
 → account for usage and apply soft budget guidance
-→ ToolRuntime executes serially in model-provided order
-→ commit Tool Result and assets
-→ inject results into the next model request
+→ for each call in model-provided order: execute through ToolRuntime, then commit its Tool Result and assets before dispatching the next call
+→ inject the completed batch's results into the next model request
 ```
 
 The call intent is committed before side effects. If the process dies afterward, recovery knows which call was pending and does not blindly repeat it.
 
 - Tool-call and time budgets are soft guidance: exhaustion records `over_budget` and prompts an efficiency review without preventing execution. Explicit cancellation, per-call timeouts, Provider constraints, and execution failures retain their separate semantics.
-- A normal Tool error is returned to the model; it is not automatically a Turn failure.
+- A normal Tool error is returned to the model; it does not automatically fail the Turn or stop the remaining batch (§5.2).
 - A large result is saved as an asset before its reference is committed in the Tool Result.
 - A cancelled or unknown result is recorded honestly and is not rewritten as success.
 - Later independent read-only Tools may be parallelized only if a real need appears. The baseline is serial execution for deterministic ordering and resource safety.
@@ -122,9 +121,23 @@ Every attempted Tool Call counts toward the current budget, including failed or 
 
 **Confirmed on 2026-11-03:** an ordinary Tool error is committed as the correlated Tool Result and returned to the model in the same Turn/Run. It does not by itself end the Turn. For example, a file read may report a missing path, or a test command may return failing checks; the model can inspect the error, change its approach, request another Tool call, or explain why it cannot continue and produce a final-response candidate.
 
-This confirms the existing normal-error direction. It does not authorize blindly replaying a failed call or hiding a failure behind a success result. User cancellation, unknown side effects, invalid Run ownership, and failure to commit the result retain their separate handling; a required persistence failure prevents the next model request. Whether a failed call stops the remaining calls in the same model-proposed batch is still open and is not decided by this continuation rule.
+This confirms the existing normal-error direction. It does not authorize blindly replaying a failed call or hiding a failure behind a success result. User cancellation, unknown side effects, invalid Run ownership, and failure to commit the result retain their separate handling; a required persistence failure prevents the next Tool dispatch or model request. The remaining-batch rule is defined in §5.2.
 
 Verification should show a missing-file result followed by a corrected model action, a failed test followed by a model-directed repair, and an unrecoverable ordinary Tool error followed by an honest final reply. In every case the next model request sees the committed result with the original call identity. Implementation and runtime verification remain pending.
+
+<a id="tool-batch-failure-policy"></a>
+
+### 5.2 Batch continuation and dependent actions
+
+**Confirmed on 2026-11-03:** an ordinary Tool error does not stop the remaining calls from the same model response. The batch flow commits that call's actual result, then proceeds in model-provided order. Each later call still requires valid Run ownership, authorization, and resource admission. After the batch completes, the next model request receives the committed results with their original call identities, including both successes and errors. Continuing call B never means automatically retrying failed call A.
+
+The model must place calls in the same batch only when neither the parameters nor the decision to execute a later call depends on an earlier call's result or success. Serial execution guarantees order, not conditional execution. Reading two independent files can be one batch: a missing file A does not prevent reading B. Editing a file and validating that edit require separate model calls: first observe the edit result, then decide the next action. These model calls keep the same Turn/Run and do not require another user message.
+
+This dependency rule is part of the model-facing Tool-use contract, reflected in [System Prompt](system-prompt.md). It is not a Runtime proof that calls are independent. The baseline does not infer dependencies from Tool names or arguments, or introduce a dependency graph or batch transaction. Tool-specific authorization and necessary preconditions remain enforceable by ToolRuntime.
+
+Cancellation, unknown side effects, invalid ownership, and required persistence failure are not ordinary Tool errors and must not use this continuation rule. A required result commit must succeed before the next call starts. Malformed calls, per-Tool error representation, timeout classification, and the full unknown-outcome policy still need their own contracts; this decision does not silently resolve them. Existing cancellation settlement and no-replay recovery rules remain in force.
+
+Verification must cover an ordinary failure in A followed by an independent success in B, preservation of both call/result identities, and no automatic replay of A. Cancellation or required-commit failure must prevent dispatch of unstarted calls under their existing rules. Model scenarios must also verify that a failed edit leads to a new model decision before any dependent validation action, within the same Turn/Run. Executor tests alone cannot establish that the model batches correctly. Implementation and runtime verification remain pending; the [Hermes/Yomi comparison](../research/2026-11-03-tool-batch-failures.md) records the evidence and alternatives.
 
 ## 6. Steer and input buffer
 
