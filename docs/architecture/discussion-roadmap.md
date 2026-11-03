@@ -64,7 +64,7 @@ M5 and M6 may be discussed in parallel after M4 if their inputs stop changing. M
 
 同日源码参考：[Hermes](../research/2026-11-03-hermes-turn-control.md) 与 [Yomi](../research/2026-11-03-yomi-turn-control.md)。两者都存在将剩余 steer 留给后续 Turn 的路径，不能作为 Nika 已确认同 Turn 规则的实现证明。可借鉴的验证场景包括最后输入检查与执行权移交、清理期间的新输入、取消后的真实工具结果；其他行为仍按各 topic 决定。
 
-**2026-11-03 普通工具错误已确认：**文件不存在、测试失败等结果先保存并交回模型，由模型决定修正、换方法或说明受阻后结束；错误本身不结束 Turn。详见 [AgentLoop §5.1](../design/agent-loop.md#ordinary-tool-errors)。取消、未知副作用和结果保存失败分别处理；同批其他调用遇到前序失败时是否继续，仍待讨论。
+**2026-11-03 普通工具错误已确认：**文件不存在、测试失败等结果先保存并交回模型，由模型决定修正、换方法或说明受阻后结束；错误本身不结束 Turn。详见 [AgentLoop §5.1](../design/agent-loop.md#ordinary-tool-errors)。取消、未知副作用和结果保存失败分别处理；同批其他调用遇到前序失败时是否继续，仍待讨论。该问题的 [Hermes/Yomi 源码比较与两种候选](../research/2026-11-03-tool-batch-failures.md) 已记录；“普通错误继续，有依赖动作分两次模型调用”仍是待确认建议。
 
 待讨论：
 
