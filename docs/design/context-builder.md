@@ -39,6 +39,8 @@ System Prompt is a small runtime-owned contract for action, verification, trust,
 
 Tools use a small static catalog with clear semantics. The runtime resolves Session, workspace, credentials, defaults, validation, retries, resource ownership, large-output assets, and error normalization so the model does not repeat those details. There is no universal `execute(action, payload)` Tool and no Tool Search in the baseline. An MCP adapter and allowlist configuration are reserved, but MCP is disabled and contributes no schemas by default.
 
+[Whole-batch validation](agent-loop.md#tool-call-validation) rejects all calls in a model response if any call format or schema check fails. ContextBuilder must not turn invalid raw response facts into apparently valid Tool history by guessing arguments or identities. Provider-valid error feedback and correction requests remain a T2 contract; saved model output alone does not authorize dispatch or another request.
+
 ### WorkingContext is append-versioned
 
 WorkingContext is a short, user-level self-reminder maintained by the Agent. A Session has at most one active WorkingContext at a time; Run and Session are lifetime scopes, not two parallel reminder slots.

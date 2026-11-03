@@ -3,6 +3,7 @@
 - Status: M4 state-machine and lifecycle baseline; ReAct execution-protocol follow-up open (2026-11-02)
 - Date: 2026-10-27
 - Last decisions: 2026-11-03 — pending steer before final commit continues the same Turn; ordinary Tool errors continue the batch; dependent actions require separate model calls; timeout with unknown effects closes the batch and permits same-Turn inspection only under Runtime admission
+- Tool admission: 2026-11-03 — any call-format or schema validation error rejects the entire batch before execution (§5.4)
 - Scope: execution state, input, model and Tool ordering, cancellation, finalization, and interruption recovery
 
 ## 1. Core model
@@ -36,7 +37,7 @@ Idle
   → Streaming
 
 Streaming
-  → ExecutingTool       when the model returns Tool Calls
+  → ExecutingTool       when the complete Tool batch passes validation and its intents are committed
   → Compacting          when preflight requires compaction before the next request
   → WaitingRequest      when runtime needs an answer
   → WindingDown         on final response commit, cancellation, or terminal error
@@ -101,16 +102,19 @@ The baseline Tool path contains no before/after Hook:
 
 ```text
 assistant response with tool_calls
-→ commit the assistant message and Tool Call intents
-→ account for usage and apply soft budget guidance
-→ for each call in model-provided order: execute through ToolRuntime, then commit its Tool Result and assets before dispatching the next call
-→ inject the completed batch's results into the next model request
+→ record response facts and usage
+→ validate the entire batch (§5.4)
+  rejected → commit rejection facts and report the validation error; execute no calls
+  accepted → commit Tool Call intents and apply soft budget guidance
+           → execute each call in model-provided order through ToolRuntime,
+             committing its Result and assets before dispatching the next call
+           → inject the completed batch's results into the next model request
 ```
 
 The call intent is committed before side effects. If the process dies afterward, recovery knows which call was pending and does not blindly repeat it.
 
 - Tool-call and time budgets are soft guidance: exhaustion records `over_budget` and prompts an efficiency review without preventing execution. Explicit cancellation, per-call timeouts, Provider constraints, and execution failures retain their separate semantics.
-- A normal Tool error is returned to the model; it does not automatically fail the Turn or stop the remaining batch (§5.2).
+- An ordinary execution error from an admitted Tool call is returned to the model; it does not automatically fail the Turn or stop the remaining batch (§5.2). Call-format/schema rejection follows §5.4 instead.
 - A large result is saved as an asset before its reference is committed in the Tool Result.
 - A cancelled or unknown result is recorded honestly and is not rewritten as success.
 - Later independent read-only Tools may be parallelized only if a real need appears. The baseline is serial execution for deterministic ordering and resource safety.
@@ -121,7 +125,7 @@ Every attempted Tool Call counts toward the current budget, including failed or 
 
 ### 5.1 Ordinary Tool errors and continuation
 
-**Confirmed on 2026-11-03:** an ordinary Tool error is committed as the correlated Tool Result and returned to the model in the same Turn/Run. It does not by itself end the Turn. For example, a file read may report a missing path, or a test command may return failing checks; the model can inspect the error, change its approach, request another Tool call, or explain why it cannot continue and produce a final-response candidate.
+**Confirmed on 2026-11-03:** an ordinary execution error from a call that passed batch validation is committed as the correlated Tool Result and returned to the model in the same Turn/Run. It does not by itself end the Turn. For example, a valid file-read call may report that its specified path does not exist, or a test command may return failing checks; the model can inspect the error, change its approach, request another Tool call, or explain why it cannot continue and produce a final-response candidate. Missing the required path argument is a validation error under §5.4, not an ordinary execution error.
 
 This confirms the existing normal-error direction. It does not authorize blindly replaying a failed call or hiding a failure behind a success result. User cancellation, unknown side effects, invalid Run ownership, and failure to commit the result retain their separate handling; a required persistence failure prevents the next Tool dispatch or model request. The remaining-batch rule is defined in §5.2.
 
@@ -131,13 +135,13 @@ Verification should show a missing-file result followed by a corrected model act
 
 ### 5.2 Batch continuation and dependent actions
 
-**Confirmed on 2026-11-03:** an ordinary Tool error does not stop the remaining calls from the same model response. The batch flow commits that call's actual result, then proceeds in model-provided order. Each later call still requires valid Run ownership, authorization, and resource admission. After the batch completes, the next model request receives the committed results with their original call identities, including both successes and errors. Continuing call B never means automatically retrying failed call A.
+**Confirmed on 2026-11-03:** after the entire batch passes validation (§5.4), an ordinary Tool execution error does not stop the remaining calls from the same model response. The batch flow commits that call's actual result, then proceeds in model-provided order. Each later call still requires valid Run ownership, authorization, and resource admission. After the batch completes, the next model request receives the committed results with their original call identities, including both successes and errors. Continuing call B never means automatically retrying failed call A.
 
 The model must place calls in the same batch only when neither the parameters nor the decision to execute a later call depends on an earlier call's result or success. Serial execution guarantees order, not conditional execution. Reading two independent files can be one batch: a missing file A does not prevent reading B. Editing a file and validating that edit require separate model calls: first observe the edit result, then decide the next action. These model calls keep the same Turn/Run and do not require another user message.
 
 This dependency rule is part of the model-facing Tool-use contract, reflected in [System Prompt](system-prompt.md). It is not a Runtime proof that calls are independent. The baseline does not infer dependencies from Tool names or arguments, or introduce a dependency graph or batch transaction. Tool-specific authorization and necessary preconditions remain enforceable by ToolRuntime.
 
-Cancellation, unknown side effects, invalid ownership, and required persistence failure are not ordinary Tool errors and must not use this continuation rule. A required result commit must succeed before the next call starts. Timeout and unknown-outcome behavior is defined in §5.3. Malformed calls, exact per-Tool result formats, and resource mechanisms still need their own contracts. Existing cancellation settlement and no-replay recovery rules remain in force.
+Cancellation, unknown side effects, invalid ownership, and required persistence failure are not ordinary Tool errors and must not use this continuation rule. A required result commit must succeed before the next call starts. Timeout and unknown-outcome behavior is defined in §5.3; malformed calls follow §5.4. Exact per-Tool result formats, Provider error feedback, and resource mechanisms still need their own contracts. Existing cancellation settlement and no-replay recovery rules remain in force.
 
 Verification must cover an ordinary failure in A followed by an independent success in B, preservation of both call/result identities, and no automatic replay of A. Cancellation or required-commit failure must prevent dispatch of unstarted calls under their existing rules. Model scenarios must also verify that a failed edit leads to a new model decision before any dependent validation action, within the same Turn/Run. Executor tests alone cannot establish that the model batches correctly. Implementation and runtime verification remain pending; the [Hermes/Yomi comparison](../research/2026-11-03-tool-batch-failures.md) records the evidence and alternatives.
 
@@ -165,6 +169,24 @@ Resource restrictions remain effective across later Turns, other Sessions, and p
 ToolRuntime owns execution/cleanup evidence and resource admission. The Tool batch flow owns correlated result and not-executed records; the driver chooses permitted continuation or finalization. Required commit failure prevents both another Tool dispatch and another model request. Event fields, numeric deadlines, per-Tool guarantees, and Provider rendering remain implementation contracts to specify.
 
 Verification must cover a stopped read-only query, a remote write with a lost response, a terminated process with partial writes, an uncooperative execution, a real result arriving during cleanup, and preservation of partial output. Check all call/result identities, no automatic replay or old-batch resumption, model-visible uncertainty, `/stop` taking precedence, and resource restrictions surviving Run closure and recovery. Implementation and runtime/model validation remain pending. The [source comparison](../research/2026-11-03-tool-batch-failures.md#tool-timeout-outcomes) records the basis and limits of this decision.
+
+<a id="tool-call-validation"></a>
+
+### 5.4 Whole-batch validation before execution
+
+**Confirmed on 2026-11-03:** the user chose a single rejection rule for invalid model-proposed calls: if any call fails name, arguments, or schema validation, reject the entire batch and report the error. An incomplete response or ambiguous call identity also rejects the batch. No call from that response executes, including otherwise valid independent calls. This replaces the earlier research proposal to reject only the invalid item.
+
+Before dispatching any Tool, check the complete response and all calls against the current Tool Catalog: response completeness, unambiguous identities, known Tool names, valid argument encoding, required fields, and schema types/constraints. Validation must not invoke the Tool to discover whether its parameters are valid. Provider-defined parsing/mapping, Runtime-injected fields, and explicitly declared defaults are allowed; guessing a Tool name, repairing malformed JSON, or filling in an undeclared argument is not. Authorizations and resource checks remain separate and are still required at execution time.
+
+On rejection, preserve the model output with its completeness/validation status and record the validation error and the fact that this batch did not execute. When calls have valid identities, their feedback must distinguish the invalid call from other calls not executed because the batch was rejected. If identities cannot be reliably associated, retain a batch-level protocol diagnostic rather than inventing IDs or normal Tool Results. Saving a proposed call as a model fact does not authorize its execution or make it a valid message for the next Provider request.
+
+For example, a batch containing `read` without the required path plus a valid independent read executes neither call. By contrast, if both calls pass validation and the first later reports that its file does not exist, the second may execute under §5.2. Whole-batch validation is not a transaction over Tool side effects; it adds no rollback after execution starts.
+
+The confirmed choice concerns rejection and error reporting, not an automatic model retry or unconditional Turn termination. A later correction requires a legal Provider request, valid Run ownership, successful commits, and no cancellation; ability to form such a request does not itself trigger it. T1/T2 still need to specify correction triggers, limits, and Provider-valid error feedback. Existing output cannot be treated as a no-output request and retried unchanged, nor may previously submitted context be rewritten to repair it.
+
+Provider stream fragments are assembled before identity checks; repeated fragments for one call are not duplicate calls. Identity uniqueness and association are evaluated within the logical response under the Provider contract, preserving the `model_call_id`; reuse of a Provider ID in another logical response alone is not proof of duplicate execution. Exact mapping and error fields remain T2/T4 work. Existing soft budget rules still apply to identifiable rejected calls; do not invent execution counts from unidentifiable output. Model usage is recorded independently.
+
+Verification must show zero Tool invocations for missing required arguments, wrong types, unknown names, malformed JSON, duplicate/ambiguous identities, and a complete leading call followed by a truncated tail. Include invalid-plus-valid batches and verify the valid item is also unexecuted; separately retain the ordinary execution-error continuation test. Check legal feedback, no guessed arguments/IDs, no automatic replay, and preservation of response facts. Implementation and Provider validation remain pending. The [research note](../research/2026-11-03-tool-call-validation.md) preserves the alternatives and the user's selection.
 
 ## 6. Steer and input buffer
 
@@ -306,7 +328,7 @@ AgentLoop presents a small interface for driving one Run using an acquired Sessi
 | Loop driver | Current Run's execution sequencing, legal AgentState transitions, safe model boundaries, and entry into mandatory finalization | Owns the single live state transition path; delegates complete operations and consumes their explicit outcomes |
 | Input handling | Selecting ordered pending steer at a safe boundary; validating and routing answers to the current WaitingRequest | Uses the Session-owned Mailbox and request identity; never creates another queue or independently starts a Turn |
 | Model invocation | One admitted logical model request, Provider attempts, streaming, usage, bounded retry, and partial-output classification | Returns a complete response, cancellation/failure, or a need to rebuild the request; never starts another Run or dispatches Tools |
-| Tool batch execution | Executing committed call intents in order; correlating results and not-executed dispositions; returning a suspended request, completed batch, batch closed with uncertainty, cancellation, or failure | Uses ToolRuntime execution/resource evidence; unknown closes the batch, and the driver decides permitted inspection or finalization under §5.3. Does not run the next model request |
+| Tool batch validation and execution | Checking the whole batch with Provider protocol facts and Catalog rules; recording rejection or executing admitted, committed intents in order; correlating results and not-executed dispositions | Validation rejection dispatches no Tools (§5.4). Uses ToolRuntime execution/resource evidence; unknown closes the batch, and the driver decides permitted inspection or finalization under §5.3. Does not run the next model request |
 | Finalization | Settling incomplete calls, committing final facts, releasing safe resources while retaining unresolved restrictions/ownership, and closing or durably handing off final delivery | One mandatory path for normal completion, stop, and failure; the driver completes it before SessionManager releases the writer lease |
 
 The driver should read as the execution protocol: obtain eligible input, assemble and admit a request, invoke the model, handle the returned Tools or final response, and finalize. Provider protocol handling, Tool-specific branches, SQL, and Feishu rendering live in the modules that own them.
@@ -317,8 +339,8 @@ ContextBuilder, Compactor, ModelProvider adapters, ToolRuntime, Session Store, a
 
 - The Session writer lease covers a single execution writer, including its awaited internal flows. These flows do not become independent background writers. Ingress must still accept pending input and propagate stop while model or Tool execution is waiting, without obtaining a second execution writer. Its durable acceptance and lease-fencing protocol remain SessionManager / Store coordination concerns for M6/M7.
 - The driver owns live AgentState transitions. Flows return explicit outcomes and narrow execution handles rather than sharing a mutable object containing every Session and Run field. Pure transition checks may be private functions; a separate state-machine framework is unnecessary.
-- Input handling owns accepted-to-injected correlation; model invocation owns model-call / attempt records and complete response commits; Tool batch execution owns per-call outcome recording; finalization owns closing execution and delivery facts. SessionManager owns Run creation, writer leases, and process-start recovery. The exact events and transaction groups are defined in M7.
-- Each durable effect has one commit owner. For a response with Tool Calls, commit the response and call intents before dispatch; return committed identities to the Tool batch flow. ToolRuntime returns an execution outcome, including durable asset references where needed; the batch flow records the correlated result. A failed required commit prevents the next side effect or model request.
+- Input handling owns accepted-to-injected correlation; model invocation owns model-call / attempt records and response facts; Tool batch validation/execution owns rejection, accepted call intents, and per-call outcome recording; finalization owns closing execution and delivery facts. SessionManager owns Run creation, writer leases, and process-start recovery. The exact events and transaction groups are defined in M7.
+- Each durable effect has one commit owner. For a response with Tool Calls, preserve response facts and complete whole-batch validation before dispatch. The Tool batch validation/execution flow records rejection diagnostics without executing any Tool, or commits accepted call intents before entering its execution phase. ToolRuntime returns an execution outcome, including durable asset references where needed; the batch flow records the correlated result. A failed required commit prevents the next side effect or model request.
 - For a normal no-Tool response, model invocation commits the response facts; the driver coordinates the §6.1 pending-input/final-commit decision through Store before entering finalization. The operation must share the input-acceptance order and validate Run ownership; two independently scheduled check/write operations cannot implement it.
 - Runtime observations remain observations until committed. In-memory projections are derived state, not another persistent authority; no internal module keeps its own conflicting copy of Run status, budget, pending input, or delivery state.
 
@@ -350,6 +372,6 @@ Recorded on 2026-11-02 after the user identified the missing explicit ReAct desi
 
 The open items are response classification, executable Tool Call conditions, correlated Observations, continuation/termination behavior, and Provider-supplied reasoning-related fields. Their required cases and close artifacts are maintained in the [G0 review](../architecture/agent-loop-capability-review.md#react-execution-protocol-gap). This is a design follow-up, not a new Reasoner/Planner module or an implementation claim.
 
-The normal-completion/pending-steer choice is confirmed in [§6.1](#normal-turn-completion) as of 2026-11-03. Other branches remain open; that decision does not certify business success or select a new verification mechanism.
+The normal-completion/pending-steer choice is confirmed in [§6.1](#normal-turn-completion) as of 2026-11-03. Tool execution errors, timeouts/unknown outcomes, and whole-batch validation are confirmed in [§5.1–5.4](#ordinary-tool-errors). Other branches, including the detailed model-correction protocol, remain open; these decisions do not certify business success or select a new verification mechanism.
 
 The established lifecycle, serial execution, soft-budget policy, and no-replay recovery rules remain the inputs to this work. A model protocol terminal signal does not certify business success; concrete result validation and user-facing completion claims need task evidence. The [capability comparison](../architecture/agent-loop-capability-review.md) distinguishes existing contracts from proposed additions inspired by the external survey.

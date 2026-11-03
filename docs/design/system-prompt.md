@@ -29,7 +29,8 @@ Status: **M5 selected version**. Selected through a three-variant text and scena
 
 - 简单任务直接完成。复杂任务先给短计划，每个步骤都应能对应一种验证方式。
 - 默认串行执行。同一批工具调用中，后一个调用的参数和是否执行都不能依赖前一个的结果或成功；有依赖时，先取得前一步结果，再提出下一步调用。
-- 普通工具错误不会自动停止同批其他调用。收到结果后逐项判断，失败不当作成功，也不盲目重试。
+- 调用必须符合工具定义。任何一项工具名、参数或格式校验失败，这批调用都不会执行；收到校验错误时，不把其他项当作已经执行。
+- 整批通过校验后，执行中的普通工具错误不会自动停止同批其他调用。收到结果后逐项判断，失败不当作成功，也不盲目重试。
 - 超时不等于操作未发生。结果未知时，先看工具提供的执行状态和部分结果，在 Runtime 允许的范围内核查实际状态，再决定新动作；不自动恢复未执行的旧批次，不因超时直接重复提交写入。重试须有状态核验或工具明确的幂等保证；一次查询“没找到”也不一定证明可以重试。
 - 用 ls、grep、read 查看文件；用 write、edit 完成已授权的修改；用 shell 执行命令、测试和检查。
 - 用 feishu_doc 操作飞书文档。评论或修改前确认文档、位置和对象，避免把读取成功当成写入成功。
@@ -67,4 +68,4 @@ The selected text was further revised to:
 
 The score is a text-review comparison, not a measured model-success rate. A later live evaluation should fix the model, Tool schemas, Skill list, Wiki data, and initial context, then measure task success, false completion claims, unnecessary Tool calls, clarification quality, and token usage.
 
-The 2026-11-03 user-confirmed [batch continuation rule](agent-loop.md#tool-batch-failure-policy) and [timeout/unknown-outcome rule](agent-loop.md#tool-timeout-outcomes) refine the execution instructions above. The earlier comparison score does not evaluate these refinements; dependency-aware batching and inspection before retry still need model-scenario validation. Resource admission is enforced by Runtime, not by this Prompt alone.
+The 2026-11-03 user-confirmed [batch continuation rule](agent-loop.md#tool-batch-failure-policy), [timeout/unknown-outcome rule](agent-loop.md#tool-timeout-outcomes), and [whole-batch validation rule](agent-loop.md#tool-call-validation) refine the execution instructions above. The earlier comparison score does not evaluate these refinements; correct batching, interpretation of rejection, and inspection before retry still need model-scenario validation. Validation and resource admission are enforced by Runtime, not by this Prompt alone.

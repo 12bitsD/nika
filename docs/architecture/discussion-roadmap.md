@@ -66,11 +66,11 @@ M5 and M6 may be discussed in parallel after M4 if their inputs stop changing. M
 
 **2026-11-03 普通工具错误已确认：**文件不存在、测试失败等结果先保存并交回模型，由模型决定修正、换方法或说明受阻后结束；错误本身不结束 Turn。详见 [AgentLoop §5.1](../design/agent-loop.md#ordinary-tool-errors)。
 
-**同批继续规则已确认：**普通错误结果提交后，继续按原顺序执行后续获准调用，再将各项结果交回模型；后一个调用的参数或是否执行若依赖前一个的结果/成功，必须分两次模型调用，仍属同一 Turn/Run。详见 [AgentLoop §5.2](../design/agent-loop.md#tool-batch-failure-policy)。串行顺序不代表条件依赖，Runtime 不自动推断依赖。取消、未知副作用、执行权失效和结果保存失败分别处理；坏调用和逐工具返回格式仍待讨论。[Hermes/Yomi 源码比较](../research/2026-11-03-tool-batch-failures.md) 保留选择依据与替代方案。
+**同批继续规则已确认：**整批通过执行前校验后，普通执行错误结果提交即可按原顺序继续后续获准调用，再将各项结果交回模型；后一个调用的参数或是否执行若依赖前一个的结果/成功，必须分两次模型调用，仍属同一 Turn/Run。详见 [AgentLoop §5.2](../design/agent-loop.md#tool-batch-failure-policy)。串行顺序不代表条件依赖，Runtime 不自动推断依赖。校验拒绝、取消、未知副作用、执行权失效和结果保存失败分别处理；逐工具返回格式仍待讨论。[Hermes/Yomi 源码比较](../research/2026-11-03-tool-batch-failures.md) 保留选择依据与替代方案。
 
 **工具超时与结果未知已确认：**先区分执行是否退出与业务效果是否已知。已停且没有未知副作用的超时失败按普通错误处理；unknown 结束本批，未启动项记录为未执行，提交后仅在执行退出/可靠隔离且 Runtime 允许核查时继续同一 Turn。无法安全继续则收尾报告受阻；资源限制跨 Turn/Session 保持，不自动恢复旧批次或重试未知写入。详见 [AgentLoop §5.3](../design/agent-loop.md#tool-timeout-outcomes)；[来源比较](../research/2026-11-03-tool-batch-failures.md#tool-timeout-outcomes) 保留依据。具体资源机制、结果字段和运行验证交 T3/T4/T8。
 
-**当前讨论：工具调用的执行前校验。** [Hermes/Yomi 比较与候选规则](../research/2026-11-03-tool-call-validation.md) 区分可关联的单项名称/参数错误，以及响应截断、调用身份歧义等整批协议错误。推荐先检查整批完整性与身份，再逐项拒绝无效调用；协议不完整则整批不执行。该选择尚未确认，Provider 修复请求与合法反馈需和 T2 联合收敛。
+**执行前校验已确认：**用户选择统一报错：任一工具名、参数/Schema、调用身份或完整性检查失败，整批都不执行；不采用仅拒绝坏项、继续合法项的候选。详见 [AgentLoop §5.4](../design/agent-loop.md#tool-call-validation)，[研究比较](../research/2026-11-03-tool-call-validation.md) 保留未采纳方案。报错本身不等于自动重试或 Turn 必然终止；错误如何合法反馈、何时让模型修正及次数规则仍需 T1/T2 联合收敛。
 
 待讨论：
 
