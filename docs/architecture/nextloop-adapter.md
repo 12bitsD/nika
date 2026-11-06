@@ -1,48 +1,28 @@
 # nika ↔ nextloop Adapter contract
 
-Status: consumer integration contract, not a dependency on nextloop's internal design documents or roadmap.
+Status: minimalist consumer integration contract (refined 2026-11-06).
 
-## Independence rule
+## No pass-through wrappers (Deep module reuse)
 
-nika and nextloop have independent goals, requirements, design, implementation, tests, and releases. nika does not jointly own ReAct or execution-protocol decisions, and nextloop does not jointly own personal agent or superagent decisions.
+`nextloop` already provides production-ready implementations of:
 
-The only runtime dependency between them is a **versioned public contract**. The current contract is [nextloop's Loop interface and ownership](https://github.com/12bitsD/nextloop/blob/main/docs/design/loop-interface.md), **v1-draft**. Internal documents in either repository are not an integration dependency.
+- `SQLiteEventStore` (with `(session_id, seq)` invariants and `surface_op` epoch watermark indexing);
+- `AppendOnlyContextBuilder` (with frozen messages, WorkingContext damping, and 75% preflight);
+- `OpenAIProvider` and `AnthropicProvider` (stateless SSE streaming adapters).
 
-## Adapter surface nika supplies
+`nika` **directly instantiates and reuses** those built-in `nextloop` modules instead of wrapping them in redundant pass-through classes.
 
-- `EventStore`: nika SQLite events, transactions, idempotency, lease/fence, and recovery.
-- `ModelProvider`: nika-selected model routes, streaming, usage, output, and errors.
-- `ContextBuilder`: nika Prompt and product context policy assembled into the public CandidateRequest shape.
-- `Compactor`: nika Compaction Prompt integrated through the public CompactionRequest/Result shape.
-- `ToolRuntime`: nika's concrete Feishu, file, shell, Browser, Computer, Wiki, and history Tools.
-- `DeliveryOwner`: Feishu delivery and durable handoff.
+## The only two adapters `nika` implements
 
-Each Adapter maps nika-specific data to the public contract; it must not create a second Loop, hidden retry path, or second fact source.
+1. **`NikaToolRuntime` (`ToolRuntime` Protocol):**
+   - Registers the 7 orthogonal deep tools (`read`, `edit`, `write`, `grep`, `bash`, `wiki`, `feishu_doc`, `gui`, `session_ctl`).
+   - Classifies `read`, `grep`, and `wiki(action="search")` as `parallel`, and mutating/GUI tools as `exclusive` barriers.
+   - Enforces the two container-level locks (`gui_lock` and `wiki_git_lock`) and maps tool results to `nextloop`'s closed 5-variant `ToolOutcome` ADT (`Completed`, `Skipped`, `Cancelled`, `UncertainSettled`, `UncertainHanging`).
+2. **`FeishuDelivery` (`DeliveryOwner` & Ingress):**
+   - Maps Feishu IM, Thread, and Document Comment events (with `Comment-as-Anchor` auto-slicing and `L0 Recent Pulse` + `L1 Wiki Synapse Map` bootstrap) into `AgentLoop.run` / `steer` / `cancel`.
+   - Patches a single live Feishu Interactive Status Card during the Turn and delivers the committed `final_message_id` (plus any single-line `📝 Wiki` Git receipt) on completion.
 
-## Independent acceptance
+## Version & independence policy
 
-nextloop independently proves the protocol with fake adapters. nika independently proves:
-
-- each public field can be produced without reading nextloop implementation code;
-- each returned outcome is mapped to an honest nika product result;
-- there is no private branch for Feishu, Wiki, WorkingContext content, or desktop resources;
-- a contract version mismatch fails closed with a clear diagnostic instead of silently changing semantics;
-- nika's real model, Feishu, Browser/Computer, Wiki, and recovery acceptance passes using the selected contract version.
-
-A nextloop internal refactor must not require a nika change when the public contract and event schema are unchanged. A nika product change must not require a nextloop change when the public contract is unchanged.
-
-## Version policy
-
-- Public API and event-schema versions are evaluated independently.
-- nika records the supported API and event-schema versions in its Adapter configuration and release notes.
-- A consumer release depends only on an accepted contract version, not on a nextloop branch, commit, design discussion, or unreleased change.
-- New public behavior first appears in a versioned contract and conformance suite, then in nika's Adapter.
-
-## Ownership of failures
-
-- **Contract violation:** owning side fixes it without bypassing the contract.
-- **Adapter mapping bug:** nika fixes the mapping in nika.
-- **Loop protocol bug:** nextloop fixes the protocol and publishes a compatible update when possible.
-- **Product behavior or acceptance failure:** nika owns the fix and evidence.
-
-See [N4 in the requirements map](requirements.md) for the integration requirement and its acceptance ownership.
+- `nika` pins `nextloop`'s `API_VERSION` and `EVENT_SCHEMA_VERSION` and fails closed on mismatch.
+- `nextloop` never imports Feishu SDKs, `AgentWiki` paths, or desktop lock primitives.

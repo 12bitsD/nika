@@ -1,88 +1,47 @@
 # nika
 
-A personal agent and superagent architecture for Feishu, coding, documents, and container-based Browser/Computer work, powered by [nextloop](https://github.com/12bitsD/nextloop).
+A minimalist personal agent and superagent for Feishu, coding, documents, and container-based Browser/Computer work, powered by [nextloop](https://github.com/12bitsD/nextloop).
 
-Status: **architecture and feature design**. There is no runtime implementation yet.
+Status: **Architecture converged and simplified (2026-11-06)**. Ready for implementation when authorized.
 
-## Architecture boundary
-
-nika owns the complete personal agent and superagent architecture; nextloop owns only the reusable execution protocol:
-
-- **nextloop**: AgentLoop, ContextBuilder, ReAct, Tool admission and outcomes, event projection, cancellation, recovery, and delivery-only retry.
-- **nika**: personal assistance and superagent coordination, including goals, verification, Proactive behavior, AgentWiki, Skills, Prompt content, Feishu, concrete Tools, credentials, deployment, and any future supervision or multi-agent collaboration explicitly chosen later.
-
-The name superagent does not itself adopt Router/Worker, persistent background jobs, or a multi-agent framework. Those remain separate product decisions.
-
-Do not maintain a second copy of nextloop's execution design here. Former Loop paths contain navigation pointers only.
-
-## Product architecture
+## Architecture at a glance
 
 ```text
-Feishu IM / Threads / documents / comments
+Feishu IM / Threads / Document Comments (Comment-as-Anchor auto-slice)
               │
               ▼
-      nika routing and adapters
+   FeishuDelivery & Ingress (allowlist + Single Live Status Card)
+   + Bootstrap: AGENTS.md + L0 Recent Pulse (5 turns) + L1 Wiki Synapse Map (≤2KiB)
               │
               ▼
-         nextloop
-  model / Tool / context / recovery
+          nextloop (reused directly, zero pass-through wrappers)
+   4D coords · Turn/Step driver · 5-variant ToolOutcome ADT · O(Δ) surface_op SQLite
               │
               ▼
-nika concrete Tools and product state
-  Wiki / Skills / assets / Feishu delivery
+   NikaToolRuntime (Consolidated Deep Tools + gui_lock & wiki_git_lock)
+   read / edit / write / grep / bash / wiki / feishu_doc / gui / session_ctl
 ```
 
-[nika ADR-0002](docs/adr/0002-single-agent-loop.md) is the product baseline. [nextloop ADR-0001](https://github.com/12bitsD/nextloop/blob/main/docs/adr/0001-embeddable-agent-loop.md) is the reusable execution-library baseline.
+## Key engineering highlights
 
-Start with [VISION.md](VISION.md) for goals, scope, and design values, and [requirements.md](docs/architecture/requirements.md) for capability ownership and acceptance.
-
-## Confirmed product direction
-
-| Area | Current approach |
+| Area | Design |
 |---|---|
-| Feishu | Private chat, group Thread, document read/create/edit, comment triggers and replies; long-lived event connection |
-| Coding | One nextloop execution path plus an on-demand coding Skill; no separate coding mode or external coding harness |
-| BrowserUse / ComputerUse | Container browser and virtual desktop; shared GUI actions serialized |
-| AgentWiki | `AGENTS.md`, `wiki/`, and `skills/`; shallow categories, live grep/read, maintenance-generated INDEX |
-| Skills | Standard `SKILL.md`, dynamic metadata and current content loaded on demand |
-| Prompt | Runtime System Prompt, independently maintained `AGENTS.md`, and a dedicated Compaction Prompt |
-| Trajectory | Append-only Session events, asset references, `list_sessions`, `get_trajectory`, and explicit batch export |
-| WorkingContext | One active user-level reminder per Session; content policy is product-owned, mechanism is owned by nextloop |
-| Models and budgets | Multiple providers, streaming, bounded retries, provider-reported usage, soft `lite/pro/promax` guidance |
-| Persistence | SQLite WAL and `synchronous=FULL`, persistent container storage, online backup plus assets, manual GC |
-
-These are design decisions, not implemented capabilities.
+| **Execution kernel** | Directly reuses [nextloop](https://github.com/12bitsD/nextloop)'s DSH-aligned Turn/Step driver, `SQLiteEventStore`, `AppendOnlyContextBuilder`, and `OpenAI/AnthropicProvider` |
+| **3-Tier Memory (`L0/L1/L2`)** | **`L0 Recent Pulse`** (5-line cross-entry ring buffer) + **`L1 Wiki Synapse Map`** (≤ 2 KiB `id → when/keys` map in cached prefix) + **`L2 AgentWiki`** (`src/nika/wiki.py` + `skills/wiki/SKILL.md` with H2-TOC search and optimistic Git-committed writes + single-line receipts) |
+| **Feishu & Docs** | `Comment-as-Anchor` auto-slicing (±2 blocks around comment), Virtual Markdown (`[b11]`) block editing, and a **Single Live Status Card** patched in place |
+| **Deep Tool Catalog** | `read` (covers files, directory trees, and Wiki entries), `edit`, `write`, `grep`, `bash`, `wiki`, `feishu_doc`, `gui`, and `session_ctl` |
+| **Minimalist Trust** | Feishu `allowlist(open_id)` at ingress, OS `chmod 444` on `AGENTS.md`/`skills/**`, deterministic Step 15 pacing watermark, and two container locks (`gui_lock`, `wiki_git_lock`) |
 
 ## Product documents
 
-- [Discussion roadmap](docs/architecture/discussion-roadmap.md) — product topics, order, and close conditions.
-- [Development handoff](docs/architecture/development-handoff.md) — current product state and reading path.
-- [Feature worklist](docs/architecture/feature-worklist.md) — product capabilities and remaining decisions.
-- [nextloop Adapter contract](docs/architecture/nextloop-adapter.md) — the only cross-repository integration dependency and its version policy.
-- [System Prompt](docs/design/system-prompt.md) — selected task-flow Prompt and Tool Catalog.
-- [Compaction Prompt](docs/design/compaction-prompt.md) — selected task-state reconstruction Prompt.
-- [AgentWiki design](docs/design/agentwiki.md) — Wiki structure, consumption, writes, and maintenance.
-- [ADR-0002](docs/adr/0002-single-agent-loop.md) — current product architecture baseline.
+- [VISION.md](VISION.md) — goals, values, and scope.
+- [ADR-0002](docs/adr/0002-single-agent-loop.md) — consolidated product architecture baseline.
+- [AgentWiki design](docs/design/agentwiki.md) — `L1 Synapse Map`, `when` triggers, H2-TOC search, and Git receipts (`src/nika/wiki.py` + `skills/wiki/SKILL.md`).
+- [Proactive, Feishu, and Minimalist Trust](docs/design/proactive-and-feishu.md) — `L0 Recent Pulse`, `Comment-as-Anchor`, Single Live Status Card, and Occam's Razor cuts.
+- [System Prompt & Deep Tools](docs/design/system-prompt.md) and [Compaction Prompt](docs/design/compaction-prompt.md).
+- [nextloop Adapter contract](docs/architecture/nextloop-adapter.md) — direct module reuse plus the two product adapters.
+- [Roadmap](docs/architecture/discussion-roadmap.md), [Requirements](docs/architecture/requirements.md), [Feature worklist](docs/architecture/feature-worklist.md), and [Handoff](docs/architecture/development-handoff.md).
 - [CONTEXT.md](CONTEXT.md) — product domain vocabulary.
-- [ADR-0001](docs/adr/0001-unified-agent-runtime.md) — superseded runtime draft retained for history.
-
-## Execution documents
-
-- [nextloop AgentLoop](https://github.com/12bitsD/nextloop/blob/main/docs/design/agent-loop.md)
-- [nextloop ContextBuilder](https://github.com/12bitsD/nextloop/blob/main/docs/design/context-builder.md)
-- [nextloop roadmap](https://github.com/12bitsD/nextloop/blob/main/docs/architecture/discussion-roadmap.md)
-- [nextloop feature worklist](https://github.com/12bitsD/nextloop/blob/main/docs/architecture/feature-worklist.md)
-- [nextloop research](https://github.com/12bitsD/nextloop/tree/main/docs/research)
-
-## Still being designed
-
-- Detailed Tool schemas and product Adapter contracts.
-- Proactive context management and notification policy.
-- Execution trust, credentials, and shared-resource ownership.
-- Feishu acceptance, event schema, backup, and retention details.
-- Implementation language, package layout, deployment, and CI.
-
-Implementation begins only after the roadmap is closed and the user explicitly confirms it.
 
 ## Content policy
 

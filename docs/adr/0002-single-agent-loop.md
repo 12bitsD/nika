@@ -1,152 +1,53 @@
-# ADR-0002: Consolidate nika as the personal agent and superagent architecture over nextloop
+# ADR-0002: Consolidate nika as the personal superagent over nextloop
 
-- Status: Accepted as the current product architecture baseline
+- Status: Accepted (refined 2026-11-06 with Occam's Razor simplifications)
 - Date: 2026-10-26
-- Updated: 2026-11-06 for the nextloop repository split and personal agent + superagent scope
+- Updated: 2026-11-06
 - Supersedes: [ADR-0001](0001-unified-agent-runtime.md)
-- Scope: personal agent and superagent behavior, Feishu, AgentWiki, Prompt content, concrete Tools, product data, deployment, and Proactive behavior
+- Scope: repository boundary, three-tier context/memory (`L0/L1/L2`), Feishu Virtual Markdown, deep tool catalog, Proactive protocol, and minimalist container trust
 
-## Context
+## 1. Direct reuse over pass-through wrappers
 
-nika maintains the complete personal agent and superagent architecture: personal assistance, goal and verification ownership, Proactive behavior, AgentWiki, Skills, Feishu, concrete Tools, product data, and deployment. nextloop is only the reusable execution protocol, not the home of nika's personal agent or superagent behavior.
+[nextloop](https://github.com/12bitsD/nextloop) owns the DSH-aligned Turn/Step driver, 4D integer coordinates, closed 5-variant `ToolOutcome` ADT, `surface_op` watermark projection, `SQLiteEventStore`, `AppendOnlyContextBuilder`, and `OpenAI/AnthropicProvider`.
 
-The name superagent does not itself adopt Router/Worker, persistent background jobs, or a multi-agent framework. Any future supervision or multi-agent collaboration is a separate nika product decision.
+`nika` reuses those modules directly without pass-through wrappers, implementing only:
+- **`FeishuDelivery` & Ingress** (Feishu events, `Comment-as-Anchor` slicing, Single Live Status Card);
+- **`NikaToolRuntime` & `AgentWiki`** (`src/nika/wiki.py`, `AgentWiki/skills/wiki/SKILL.md`, and the consolidated deep tools).
 
-[nextloop ADR-0001](https://github.com/12bitsD/nextloop/blob/main/docs/adr/0001-embeddable-agent-loop.md) defines the reusable execution-library boundary. This ADR retains nika's product and superagent decisions and does not duplicate nextloop's execution protocol.
+## 2. Entry isolation + `L0 Recent Pulse` (Cross-entry awareness)
 
-## 1. Repository and execution boundary
+Each Feishu entry maps to its own isolated Session (`chat_id` for DM, `thread_id` for group topics, `comment_id` for partial doc comments, `doc_token` for whole-doc comments).
 
-[nextloop](https://github.com/12bitsD/nextloop) owns AgentLoop, ContextBuilder, ReAct, Tool validation and outcomes, event projection, cancellation, recovery, and delivery-only retry.
+To prevent cross-entry amnesia without merging Sessions, `nika` maintains an **`L0 Recent Pulse` ring buffer** (the last 5 completed Turn micro-summaries across entries, ≤ 500 tokens) and injects it into the initial context of any new Session alongside `AGENTS.md` and the `L1 Wiki Synapse Map`. When the user refers to recent work in another thread, the model pulls details on demand via `session_ctl(inspect_session=...)`.
 
-nika owns:
+## 3. Consolidated Deep Tool Catalog
 
-- Feishu ingress, routing, documents, comments, cards, and delivery;
-- AgentWiki, `AGENTS.md`, Skills, and knowledge-write authorization;
-- System Prompt and Compaction Prompt content;
-- concrete Tool implementations, credentials, and resource supervision;
-- product data, deployment, backup, GC, and Proactive behavior.
+Instead of ~18 granular tools, `nika` exposes a small set of deep, orthogonal tools ([system-prompt.md](../design/system-prompt.md)):
 
-nika uses nextloop through adapters. Product-specific needs must not be patched into the public Loop contract, and nextloop must not depend on nika's Feishu IDs, Wiki paths, or desktop locks.
+- **`read`** (reads files, directories as trees—replacing `ls`, and `AgentWiki` entries—replacing `wiki_read`), **`edit`**, **`write`**, **`grep`**, **`bash`**;
+- **`wiki(action="search" | "upsert" | "revert")`** (implemented in `src/nika/wiki.py` + guided by `AgentWiki/skills/wiki/SKILL.md`);
+- **`feishu_doc(action="read" | "replace_block" | "insert_after" | "reply_comment")`** (Virtual Markdown with `[b11]` block tags);
+- **`gui(target="browser" | "desktop")`** (container browser and virtual desktop serialized by `gui_lock`);
+- **`session_ctl(working_context?, skill_view?, inspect_session?, ask_user?)`**.
 
-## 2. Entry and Session identity
+Redundant `lite/pro/promax` budget profiles and `configure_budget` are removed in favor of a deterministic **Step 15 Pacing Watermark** injected by Runtime into Tool Results when a Turn runs long.
 
-One entry maps to one Session by default:
+## 4. AgentWiki (`L1 Synapse Map` + `when` triggers + Git receipts)
 
-| Entry | Session mapping |
-|---|---|
-| Private chat | One `chat_id`; `/new` explicitly starts another |
-| Group topic | One Feishu Thread |
-| Partial document comment | One `comment_id` |
-| Whole-document comments | One shared document Session |
+Full contract: [agentwiki.md](../design/agentwiki.md).
+- **L1 Synapse Map (`≤ 2 KiB`):** Compiled from `active` headers and injected at Session start (100% prompt-cache hit).
+- **Conditioned-reflex `when` triggers:** Frontmatter records symptom/scenario triggers so past playbooks surface during new tasks.
+- **H2-TOC search:** `wiki(action="search")` returns full Frontmatter + Markdown `## H2` line ranges + snippets.
+- **Optimistic Git-backed writes:** `wiki(action="upsert")` commits every change to Git and appends a one-line footer receipt (`📝 Wiki: <path> (<state>) · rev <sha>`) to the reply for effortless `git revert`.
 
-There is no default cross-entry continuation. An explicit resume-by-Session-ID capability may be added later. Workspace changes are recorded and do not implicitly create a new Session.
+## 5. Proactive protocol & Feishu UX
 
-The execution lifecycle, input ordering, and final-response commit rules belong to nextloop. nika supplies entry identity, ingress events, and the DeliveryOwner.
+Full contract: [proactive-and-feishu.md](../design/proactive-and-feishu.md).
+- **Ingress Pre-Hydration & `Comment-as-Anchor`:** Automatically slices quoted document blocks (±2 blocks as Virtual Markdown) and resolves mentioned aliases before Step 1.
+- **Optimistic Wiki Sync:** Proactively updates lagging Wiki entries with a single-line Git receipt rather than asking permission first.
+- **Single Live Status Card:** Patches one Feishu card in place for progress, WorkingContext, `/stop`, `ask_user`, and final delivery.
 
-## 3. Product capabilities
+## 6. Minimalist Trust, Storage, and Export
 
-The concrete Tool Catalog is statically registered with small, intention-clear interfaces. Runtime resolves Session, workspace, credentials, defaults, validation, retries, resource ownership, large-output assets, and error normalization so the model does not repeat them.
-
-There is no universal `execute(action, payload)` Tool and no baseline Tool Search. An MCP adapter and allowlist configuration are reserved, but MCP is disabled and contributes no schemas by default.
-
-### Coding
-
-Ordinary chat and coding share nextloop's AgentLoop. Coding quality comes from repository Tools and an on-demand coding Skill, not a separate runtime mode or external coding harness.
-
-### BrowserUse and ComputerUse
-
-Bot, browser, and virtual desktop run in the same container. There is no remote Mac or device bridge.
-
-- BrowserUse controls a container browser, with per-Session contexts where useful.
-- ComputerUse controls the container virtual desktop.
-- Shared GUI actions are serialized with a container-level lock.
-- Cancelling a Run stops later actions but does not undo clicks or writes already performed.
-
-Screenshots and large observations are stored as assets and referenced from Trajectory.
-
-## 4. AgentWiki and behavior assets
-
-The accepted structure is:
-
-```text
-AgentWiki/
-  AGENTS.md
-  wiki/
-    INDEX.md          # generated for maintenance, excluded from normal grep
-    inbox/
-    projects/
-    concepts/
-    people/
-    playbooks/
-    profiles/
-    references/
-  skills/
-```
-
-Wiki is the only long-term knowledge source. There is no separate Memory service, automatic Recall Subagent, vector store, or second curated fact store. Wiki and Trajectory remain distinct; raw Trajectory is not automatically promoted into Wiki.
-
-The consumption and maintenance contract is in [agentwiki.md](../design/agentwiki.md), implemented in `nika` as one runtime module (`src/nika/wiki.py`) plus one built-in Skill (`AgentWiki/skills/wiki/SKILL.md`):
-
-- **L1 Synapse Map (`WIKI_MAP`, ≤ 2 KiB)** injected with `AGENTS.md` at Session start for zero-cost cold-start recall and alias resolution;
-- self-describing Markdown headers with `id/kind/state/when/summary/keys`, where `when` captures symptom/scenario triggers for cross-task memory connection;
-- two-stage retrieval via `wiki_search` (returning Frontmatter + Markdown `## H2` line-range TOC + snippets) followed by targeted `wiki_read`;
-- **Git-backed optimistic writes (`wiki_upsert`)** on `wiki/**` with lenient validation, automatic Git commits, and a single-line receipt in the reply footer, paired with a hard read-only lock on behavior files (`AGENTS.md`, `skills/**`).
-
-`AGENTS.md` contains the Agent's evolving role, personality, and interaction style. It is maintained independently of System Prompt and changed or refreshed only by explicit user request. Skills use standard `SKILL.md` packages and current content at the point of use.
-
-## 5. Prompt and content policy
-
-The selected runtime-owned System Prompt and first Tool Catalog are in [system-prompt.md](../design/system-prompt.md). It guides task classification, evidence lookup, execution, verification, and delivery; it does not contain evolving persona, recent tasks, Wiki snapshots, budget balances, dynamic request IDs, or per-call timestamps.
-
-The dedicated [compaction-prompt.md](../design/compaction-prompt.md) is supplied by nika to nextloop. It reconstructs current task state by future action value rather than requiring complete Tool transcripts or a fixed summary schema.
-
-WorkingContext content is a short, user-level self-reminder, with one active version per Session and 2 KiB as a soft readability guideline. nextloop owns its append, expiry, and compaction mechanics. It is not long-term Wiki memory, a permission channel, or Proactive behavior.
-
-Budget profiles remain `lite/pro/promax` with `pro` as default. Tool-call counts and time budgets are soft optimization signals, not forced stop conditions. Runtime marks `over_budget` and gives efficiency guidance. Provider capacity, explicit cancellation, per-Tool timeouts, and terminal runtime failures remain separate constraints.
-
-## 6. Feishu
-
-Feishu is the primary channel, using long-lived event connections. Target behavior matches the relevant verified yomi behavior:
-
-- private chat, group mention, and Thread routing;
-- message deduplication and sender identity checks;
-- document read, create, and edit;
-- document-comment mention triggers, comment history, and replies;
-- partial-comment Session isolation and whole-document shared Sessions;
-- long-message handling, reactions, status and interaction cards;
-- Tool trace rendered from Trajectory rather than a separate instrumentation system.
-
-Platform-specific response fallbacks and comment-read races should reuse verified yomi behavior. Feishu delivery retries never rerun the model or Tools.
-
-## 7. Product data and operations
-
-Session and Trajectory data live on persistent container storage. The event envelope, projection, and recovery algorithm belong to nextloop; nika supplies the deployed Store and asset policy.
-
-Storage uses SQLite with WAL and `synchronous=FULL`. Large observations and outputs live as external assets persisted before their references. The core write path does not maintain FTS or secondary indexes beyond those needed for Session, event, and delivery queries.
-
-`SessionCatalog` supports `list_sessions`, cursor-based `get_trajectory`, and explicit batch export. Export projections are:
-
-- `trace/v1`: full runtime and interaction events for diagnosis;
-- `aift/v1`: model-interaction projection with Session, messages, Tools, and correlated Tool Calls/Results.
-
-Batch export is explicit, with a manifest and one JSONL per Session. There is no background export or automatic training pipeline.
-
-Backups use SQLite online backup plus asset snapshots. Raw Trajectories are not committed to public Git. GC is manual, supports dry-run, age filters, and active/pinned exclusions, and has no default automatic deletion of Sessions.
-
-## 8. Proactive and exclusions
-
-Proactive context management is a separate product mechanism intended to reduce the user's context-management burden. Task-phase detection, internal updates, user-facing distillation, authorization, and interruption policy are designed separately from WorkingContext and nextloop.
-
-The following are outside the current product baseline:
-
-- external coding Harness or a separate coding mode;
-- generic EventBus, remote event replay, or task-card system;
-- agent-defined Hooks or fixed before/after Tool hooks;
-- read-only `/btw` side questions or a separate task FIFO;
-- conversation rewind or automatic historical Tool replay;
-- automatic RSI, automatic Wiki promotion, or automatic Skill promotion;
-- remote device bridges or multiple virtual desktops.
-
-## 9. Current implementation boundary
-
-There is no runtime implementation, release, or deployment result. Language, package layout, CI, concrete resource protocols, event schemas, and real Feishu acceptance remain open. Execution protocol work continues in nextloop's [discussion roadmap](https://github.com/12bitsD/nextloop/blob/main/docs/architecture/discussion-roadmap.md); product integration continues in nika's [discussion roadmap](../architecture/discussion-roadmap.md).
+- **Trust:** Feishu `allowlist(open_id)` at ingress + OS `chmod 444` on `AGENTS.md` and `skills/**` + two in-process locks (`gui_lock`, `wiki_git_lock`).
+- **Storage & Export:** `nextloop`'s `session_events` table in SQLite (`WAL`, `synchronous=FULL`) plus content-addressed `/data/assets/` files. Custom `trace/v1` and `aift/v1` formats are replaced by direct SQLite queries and a simple `nika export` CLI outputting standard OpenAI-format JSONL from `surface_op != 'none'` events.
