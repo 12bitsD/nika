@@ -1,77 +1,45 @@
-# Context
+# nika context
 
-This file is the project's canonical glossary. It contains domain concepts only, not implementation choices.
+This file defines nika's product vocabulary. Execution terms such as AgentLoop, Turn, Run, AgentState, Compactor, and finalization are canonically defined in [nextloop CONTEXT](https://github.com/12bitsD/nextloop/blob/main/CONTEXT.md).
 
-## Agent knowledge and behavior
+## Product knowledge and behavior
 
 | Term | Definition |
 |---|---|
-| AgentWiki | The shared root for `AGENTS.md`, long-term Wiki content, and Skills. Wiki and Skills have separate consumption mechanisms. |
-| System Prompt | The small runtime-owned contract for action, verification, harness use, and delivery. The selected text is maintained in `docs/design/system-prompt.md`, separately from the evolving `AGENTS.md` persona. |
-| AGENTS.md | The independently maintained description of the Agent's evolving role, personality, and interaction style. A snapshot enters the first request as runtime context rather than being compiled into System Prompt and is changed or refreshed only when the user explicitly requests it. |
+| AgentWiki | nika's shared root for `AGENTS.md`, long-term Wiki content, and Skills. Wiki and Skills have separate consumption mechanisms. |
+| AGENTS.md | nika's independently maintained description of the Agent's evolving role, personality, and interaction style. It enters the first request as runtime context and is changed only by explicit user request. |
+| System Prompt | nika's runtime-owned contract for action, verification, harness use, and delivery, maintained in `docs/design/system-prompt.md`. |
+| Compaction Prompt | nika's dedicated Prompt for reconstructing current task state during nextloop compaction. |
 | Wiki | The only long-term knowledge store, with shallow dynamic categories and self-describing Markdown entries. It is distinct from Session history and Trajectory and has no separate Memory service. |
-| Wiki entry | One independently retrievable Markdown document with a stable ID, kind, lifecycle state, summary, grep keys, and optional relations and freshness metadata. |
+| Wiki entry | One independently retrievable Markdown document with stable ID, kind, lifecycle state, summary, grep keys, and optional relations and freshness metadata. |
 | Wiki INDEX | A regenerable maintenance inventory derived from entry headers. It is excluded from normal grep and is not required by model reads, writes, or retrieval. |
 | Wiki Skill | The on-demand instructions for Wiki retrieval, writing, source handling, category creation, and maintenance. |
-| Wiki write authorization | The Runtime-derived permission for semantic Wiki changes. `draft_only` is the default; `curate` covers ordinary active knowledge within an authorized task or Run; `behavior` separately covers `AGENTS.md` and Skill changes. Provenance does not itself grant permission. |
-| Skill | Instructions that teach the Agent how to perform a kind of work. Skills are discovered through a small index and loaded on demand rather than injected in full. |
-| WorkingContext | A short, user-level self-reminder maintained by the Agent, with at most one active version per Session. New versions and invalidation markers are appended without rewriting earlier content; compaction keeps only the latest active version immediately after the task summary. It is scoped to a Run or Session and is neither long-term Wiki memory nor the separate proactive mechanism. |
+| Wiki write authorization | Runtime-derived permission for semantic Wiki changes. `draft_only` is the default; `curate` covers ordinary active knowledge within an authorized task or Run; `behavior` separately covers `AGENTS.md` and Skill changes. Provenance does not grant permission. |
+| Skill | Instructions for a kind of work. Skills are discovered through a small index and loaded on demand. Current content is used at load time. |
+| Coding Skill | The on-demand protocol for repository inspection, modification, testing, diff review, and delivery. Coding does not require a separate runtime mode. |
+| WorkingContext | nika's short, user-level self-reminder content. At most one active version exists per Session; 2 KiB is a soft readability guideline. nextloop owns its append and compaction mechanics. |
+| Proactive context management | A separate product mechanism for reducing the user's context-management burden through task framing, retrieval, distillation, and carefully limited notification. It is not WorkingContext or automatic self-improvement. |
 
-## Execution
-
-| Term | Definition |
-|---|---|
-| AgentLoop | The execution algorithm that consumes a Session and an input, drives model and tool interactions, and writes results back to the Session. It has no long-term identity and is created on demand. |
-| SessionManager | The coordinator that resolves an entry to a Session, enforces single-writer execution, and creates or ends Runs. |
-| Session | A continuing conversation and its durable identity plus append-only Trajectory. Current WorkingContext, budget, workspace, and delivery state are derived from events rather than stored as a second persistent Snapshot. |
-| Session projection | The current model-facing view derived from Trajectory. It starts at the latest compaction event and applies later events without replaying their side effects. |
-| Turn | One execution cycle from an initiating user input until the AgentLoop becomes idle, including any steer accepted for that cycle, model calls, tool calls, waiting, and finalization. Multiple user messages can belong to one Turn. |
-| Run | One concrete execution attempt within a Turn. Steer-driven model continuations keep the same Run. Input accepted after final commit, or a new ordinary input after cancellation, starts a later Turn rather than requiring a special retry workflow. |
-| RunStatus | The externally meaningful execution state: `Running` or `Stopped`. Diagnostic detail may be recorded without defining a separate user workflow for each reason. |
-| Interruption | An unclosed old Run caused by process failure or an unknown execution loss. Recovery closes the old Run and rebuilds committed facts without replaying historical side effects. Starting a later Turn requires a separate input/start condition; rebuilding facts does not itself start execution. |
-| AgentState | What the AgentLoop is currently doing: `Idle`, `Streaming`, `ExecutingTool`, `Compacting`, `WaitingRequest`, or `WindingDown`. |
-| Compactor | The internal mechanism that uses a dedicated Compaction System Prompt to reconstruct current task state by future action value, validates the result, and appends a compaction event. It is not a Tool and never rewrites old Trajectory. |
-| Cache boundary | The start of a new provider-cache prefix. Compaction and explicit model, Tool, or System Prompt changes create one; ordinary messages and dynamic Skill or WorkingContext updates are appended to preserve the previous prefix. |
-| Preflight | The admission check before each model request. It computes complete input and the active output reserve, enters Compacting at 75% input occupancy or when `I + O` exceeds Provider capacity, and rechecks after compaction. |
-| WaitingRequest | A runtime-created request for user input that blocks the current execution. At most one is pending per Session; its validated answer resumes the original Tool Call or model request rather than starting a new Turn. An ordinary question does not create this state; replies follow normal steer/final-commit ordering. |
-| WindingDown | Mandatory finalization is still in progress; execution is not yet fully stopped. |
-
-## Input and control
+## Product capabilities
 
 | Term | Definition |
 |---|---|
-| Mailbox | The Session-owned ordered input buffer. It persists independently of any individual AgentLoop object and preserves input until a safe injection point. |
-| Steer | The semantics of every ordinary message: idle input starts a new Turn; active-Turn input is buffered and injected at the next safe model boundary without immediately interrupting an active model request or tool action. |
-| Control input | Commands such as stop that bypass the steer buffer because they act on the current execution. |
-| Cancellation | A request to stop the current AgentLoop, model request, tools, and child processes. Late events from an older Run are discarded rather than attached to a new Turn. |
-| Tool call budget | A soft target for efficient Tool use. Every attempted call counts, including failed or rejected calls. Exceeding the target marks `over_budget` and prompts an efficiency review rather than stopping the Run. |
-| Budget profile | A named collection of soft resource guidance: `lite`, `pro`, or `promax`. Profiles are Agent-adjustable configuration, not authorization boundaries or hard stop limits. |
-| Time budget | Soft wall-clock guidance for a Run, separate from per-request and per-Tool timeouts. Expiry reminds the Agent to assess progress rather than forcibly terminating work. |
-| Finalization | Mandatory work after output stops: settling incomplete tool calls, saving authoritative state, releasing resources, and only then publishing completion. |
-| Final response commit | The durable decision that a committed model response is the Turn's final reply. A normal no-Tool response remains a candidate until accepted pending steer has been handled. Input accepted after final commit belongs to a later Turn. |
-
-## Capabilities
-
-| Term | Definition |
-|---|---|
-| Coding skill | The on-demand working protocol for repository inspection, modification, testing, diff review, and delivery. Coding does not require a separate runtime mode. |
-| BrowserUse | Browser interaction against the browser environment inside the bot's container. |
-| ComputerUse | GUI interaction against the virtual desktop inside the bot's container. Already-performed actions cannot be undone by cancelling a later action. |
+| BrowserUse | Browser interaction against the browser environment inside nika's container. |
+| ComputerUse | GUI interaction against the virtual desktop inside nika's container. Already-performed actions cannot be undone by cancelling a later action. |
 | GUI execution lock | The container-level serialization that prevents multiple Sessions from acting on the same virtual desktop concurrently. |
+| Feishu document | A Feishu Docx document that nika can read, create, or edit through product Tools. |
+| Document comment | A Feishu discussion location that can wake nika through an explicit `@` mention and receive a reply in the same area. |
+| Asset reference | A durable pointer to a large observation such as a screenshot or Tool output, stored outside event payloads. |
+| Budget profile | A named collection of soft optimization guidance: `lite`, `pro`, or `promax`. It is not an authorization boundary or a forced stop condition. |
 
-## Trajectory
+## Product data and recovery
 
 | Term | Definition |
 |---|---|
-| Trajectory | The append-only factual record of a Session: inputs, model activity, tool calls and results, GUI actions and observations, configuration changes, compaction, cancellation, and finalization. |
-| SessionCatalog | The atomic capability for listing Sessions, reading their Trajectory, and exporting selected Trajectories on demand. |
+| Session | A continuing conversation and its durable identity plus append-only Trajectory. Private chat, Thread, partial comment, and whole-document areas have separate mappings by default. |
+| SessionCatalog | The product capability for listing Sessions, reading Trajectory, and exporting selected histories on demand. |
 | Trace export | A full-fidelity export of runtime and interaction events for diagnosis and analysis. |
-| AIFT export | A model-interaction projection intended for training workflows. It is distinct from the full trace and from any provider-specific chat-template conversion. |
-| Asset reference | A durable pointer to a large Trajectory artifact such as a screenshot or large tool output, stored outside the event payload itself. |
-
-## Memory and recovery
-
-| Term | Definition |
-|---|---|
+| AIFT export | A model-interaction projection for training workflows, distinct from full trace and Provider-specific chat-template conversion. |
 | Long-term memory | Curated knowledge maintained in Wiki files. Trajectory is not automatically promoted into long-term memory. |
-| Conversation rewind | Restoring an earlier conversational state. This is not part of the current architecture; file restoration through Git is a separate concern. |
+| Delivery | Feishu presentation and delivery of a committed result. Delivery retries never rerun the model or Tools. |
+| Interruption recovery | Rebuilding product state from committed facts after process failure. Historical side effects are not automatically replayed. |

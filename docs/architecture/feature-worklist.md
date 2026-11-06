@@ -1,83 +1,69 @@
-# Feature worklist
+# nika feature worklist
 
-Purpose: close the architecture feature by feature. Each row states the user value, the currently accepted approach, and what still needs a decision. “Accepted approach” does not mean the feature is implemented. **Open** marks a material design choice that should be closed before implementation.
+Purpose: track product capabilities. **Open** marks a material design or verification choice. No row implies runtime implementation. Reusable execution features are tracked in [nextloop's worklist](https://github.com/12bitsD/nextloop/blob/main/docs/architecture/feature-worklist.md).
 
-The [2026-11-02 AgentLoop capability review](agent-loop-capability-review.md) maps an external ReAct/Harness/Super-agent survey to this baseline, records G0–G13 closure gaps, and distinguishes proposed additions from accepted capabilities. Router/Worker, background jobs, persistent subscriptions, and a supervisory Agent are not implicitly adopted by that review.
-
-For discussion, use the roadmap's [T1–T8 responsibility topics](discussion-roadmap.md#discussion-topics): execution, model/context, Tool/resource/trust, durable state, channels, knowledge/Skills, proactive behavior, and engineering/acceptance. Each gap has one primary topic; the sections below remain a feature inventory, not another discussion sequence. The roadmap records pending questions and cross-topic interfaces; selected behavior stays in its owning design document.
-
-## Core execution
+## Product integration
 
 | Feature | Value | Current approach | Remaining decision |
 |---|---|---|---|
-| AgentLoop | One understandable execution path for chat and coding | On-demand procedure outside Session; explicit state machine, model/tool order, cancellation, finalization, and interruption recovery. [Internal structure](../design/agent-loop.md#12-internal-structure-and-module-interfaces) separates the driver from private input, model, Tool-batch, and finalization flows with explicit state/commit ownership | M4 state-machine/lifecycle baseline recorded; ReAct protocol follow-up remains open below. Internal decomposition is a working design; concrete interfaces/layout in M8, event schema in M7, numeric timeouts and implementation tests remain |
-| ReAct execution protocol | Turn model decisions into valid actions, observations, and truthful completion | Existing native model/Tool loop; [G0 review](agent-loop-capability-review.md#react-execution-protocol-gap) records the missing detailed contract without adding a separate Reasoner | **Open / M4 follow-up:** classify complete/partial/mixed/empty/terminal responses, validate calls, correlate Observations, define continuation/exits, and preserve Provider-required fields |
-| SessionManager | Continue conversations without long-lived loop objects | Resolve entry to Session, enforce single-writer execution, create/end Runs | Lease recovery and stale-run detection after process failure |
-| Session identity | Keep unrelated conversations separate | One private chat, Thread, partial comment, or whole-document area per Session | Explicit cross-entry resume can remain a later option |
-| Mailbox and steer | Accept follow-up or redirection without a separate task-queue mode | Idle starts a Turn; active input is ordered in the Session buffer and injected at a safe model boundary. A Turn may include multiple inputs. [2026-11-03 decision](../design/agent-loop.md#normal-turn-completion): accepted pending steer prevents normal final commit and continues the same Turn/Run; input accepted after final commit belongs to a later Turn. Acceptance and injection are recorded separately | Normal-completion input ownership is defined. Remaining: durable ingress/final-commit ordering and concurrency validation, pending-input recovery/start conditions, and distinguishing WaitingRequest answers from guidance |
-| WaitingRequest | Pause for input that is required to continue the current execution | Runtime-created request with `request_id` and Run identity; free text answers bypass the steer buffer; validated answers resume the original Tool/model request; duplicates and stale answers have no new effects | Feishu presentation, timeout UX, and exact `request_user_input` result schema |
-| Cancellation and finalization | Stop honestly without replaying side effects | Cancel current loop and children, settle incomplete calls, persist, release safe resources while retaining restrictions/ownership for unresolved ones, then deliver. User stop never starts timeout-driven inspection | Numeric cleanup deadlines and concrete resource restriction, responsibility-transfer, and recovery protocols |
-| Tool call validation | Reject malformed model actions before any Tool executes | [Confirmed 2026-11-03](../design/agent-loop.md#tool-call-validation): check the complete batch; any name, arguments/schema, completeness, or identity error rejects all calls, including valid independent items. Record rejection and no execution without guessing arguments or identities | Provider-valid error feedback, correction triggers/limits, exact identity mapping and error fields, and implementation validation. Rejection is not automatic model retry or unconditional Turn termination |
-| Ordinary Tool errors | Let the model correct a failed action without discarding other independent results | [Confirmed 2026-11-03](../design/agent-loop.md#ordinary-tool-errors): after whole-batch validation passes, persist an ordinary execution error and return it to the model in the same Turn/Run. [Batch policy](../design/agent-loop.md#tool-batch-failure-policy): after that commit, continue later admitted calls in order; result/success-dependent actions require separate model calls within the same Turn/Run | Ordinary-error continuation is defined. Per-Tool error representation remains; validation rejection, cancellation, ownership loss, and persistence failures retain separate rules. Runtime and model-scenario verification remain pending |
-| Tool timeout and unknown outcomes | Avoid duplicate effects and conflicting actions after an uncertain result | [Confirmed 2026-11-03](../design/agent-loop.md#tool-timeout-outcomes): collect actual/partial results with bounded cleanup; stopped execution without unknown effects follows ordinary-error rules. Unknown closes the batch; committed results permit same-Turn inspection only under Runtime admission after exit/isolation. Otherwise finalize as blocked; restrictions survive Run closure and recovery | Exact per-Tool guarantees/result fields, isolation and admission mechanisms, numeric deadlines, Provider rendering, and runtime/model verification. No automatic retry, old-batch resumption, or background recovery scheduler |
-| ContextBuilder | Make every model request explainable, reproducible, and cache-friendly | One deterministic Prompt assembly point; within a compaction boundary and fixed revisions, previous provider-visible content remains unchanged and new content is appended. Selected Prompt: [system-prompt.md](../design/system-prompt.md). Context contract: [context-builder.md](../design/context-builder.md) | **Open / M5:** detailed Tool schemas and descriptions |
-| Compaction | Continue long Sessions within a bounded context without rewriting history | Internal `Compactor`, not a Tool: check before every model request at 75% input occupancy or a preflight capacity violation, or accept `/compact`; use the dedicated [compaction-prompt.md](../design/compaction-prompt.md) with `AGENTS.md` and Conversation, no Tool definitions or execution. Reconstruct task state by future action value and evidence recovery. Validate nonempty, meaningful reduction, unchanged bootstrap content, valid request structure, and `I + O` admission; append a compaction event and rebuild from it plus later events. Overflow permits one compaction, not an unbounded sequence | **Closed design** — implementation tests and later live continuation evaluation remain |
-| WorkingContext | Let the Agent maintain a lightweight current reminder | One active user-level reminder per Session; set/clear append versions or markers without rewriting old content. Tool Results are short text; 2 KiB is a soft guideline, not a hard cap. Compaction keeps only the latest active version immediately after the task summary | **Closed design** — implementation tests remain for idempotency, scope expiry, event ordering, and compaction position |
-| Provider cache planning | Reuse stable prefixes across ordinary model calls and exact retries | OpenAI/Kimi implicit caching with canonical ordering; Anthropic explicit breakpoints after committed immutable content. Dynamic Skill/Wiki/steer updates append only; no-output/no-new-input retries preserve request bytes. Compaction creates a new Conversation cache boundary | **Closed design** — implementation tests for serialization, revision boundaries, retry identity, and provider cache plans |
-| Content access | Preserve task-relevant information without letting raw output crowd out current work | No fixed prefix or per-section hard caps. Large results become assets with previews; pagination limits one response, not total access. Provider capacity is enforced, and usage/read patterns inform later task-performance review | **Closed design** — implementation tests for asset retrieval, pagination, and oversized fixed content |
-| Usage and preflight | Prevent oversized model requests without treating missing usage as zero | Complete candidate usage from Provider usage, `count_tokens`, or full local estimation. Enter Compacting at 75% input occupancy or whenever `I + O` exceeds Provider capacity; recheck after compaction and report oversized fixed content | **Closed design** — implementation tests for usage fallbacks, output reserves, exact thresholds, and post-compaction admission |
-| Budget profiles | Match resources to task size without administrator micromanagement | `lite/pro/promax` as soft optimization guidance; default `pro`. `configure_budget` applies to the next operation after commit and returns `cap/used/remaining` plus an efficiency hint. Counts and time do not forcibly stop a Run | **Closed design** — implementation tests for result content, effective timing, over-budget guidance, and Run versus Session defaults |
-| Proactive context management | Release the user's cognitive bandwidth by reducing manual task framing, retrieval, distillation, and follow-up | Separate later mechanism, not a responsibility of WorkingContext or ContextBuilder alone; its value is accepted but it is not in the current runtime baseline | **Open / special topic after M5:** task-phase detection, internal update triggers, user-facing distillation, authorization boundaries, and interruption policy |
+| nextloop integration | Reuse one independently verified execution protocol | nika supplies EventStore, ModelProvider, ContextBuilder, Compactor, ToolRuntime, and DeliveryOwner adapters | Detailed Adapter contracts and compatibility verification |
+| Tool Catalog | Small, intention-clear capabilities with runtime-owned defaults, validation, errors, and large-result handling | Static catalog with `ls/grep/read/write/edit/shell/skill_view/feishu_doc/browser_use/computer_use` and execution/history controls | **Open:** detailed schemas, descriptions, result formats, cancellation, timeout, and examples |
+| Coding Skill | Better repository work without another runtime mode | On-demand instructions for inspection, modification, testing, diff review, and delivery | Concrete Skill content and validation workflow |
+| WorkingContext content | Short, current self-reminders that do not become long-term memory | One active version per Session; 2 KiB is a soft guideline; content is not a permission channel | Implementation tests for content lifecycle, owned by nextloop |
+| Budget profiles | Match optimization guidance to task size without forced termination | `lite/pro/promax`, default `pro`; changes apply after commit and return `cap/used/remaining` plus an efficiency hint | Result content, effective timing, over-budget guidance, Run versus Session defaults |
+| Proactive context management | Reduce manual task framing, retrieval, distillation, and follow-up | Separate product mechanism, not WorkingContext or automatic RSI | **Open:** task phases, triggers, user-facing distillation, authorization, and interruption policy |
 
-## Tools and channels
+## Feishu and concrete capabilities
 
 | Feature | Value | Current approach | Remaining decision |
 |---|---|---|---|
-| Tool Catalog and ToolRuntime | One capability surface with consistent execution | Static Tool Catalog, serial calls in the baseline, cancellation, timeouts, output limits, per-resource serialization | **Open:** detailed Tool contracts and complete resource ownership rules. Long-operation responsiveness is required; returning background-job handles is a separate proposed capability |
-| Coding Skill | Better repository work without a separate mode | On-demand instructions for inspection, modification, testing, diff review, and delivery | Concrete Skill content is implementation work, not a new runtime mode |
-| BrowserUse | Complete browser tasks inside the same environment | Container browser, per-Session contexts where useful, observations in Trajectory | Browser distribution and profile/login-state policy after language choice |
-| ComputerUse | Operate desktop applications without a remote device | Container virtual desktop, container-level GUI lock, action and observation recording | Virtual desktop stack, application set, crash recovery, coordinate scaling |
-| Feishu IM | Natural chat, group, and Thread interaction | Long-lived connection, identity and dedupe, private/group/Thread routing | Real-client acceptance matrix and failure/retry behavior |
-| Feishu documents | Read and produce collaborative documents | Read, create, and edit documents through the same Bot capabilities | Detailed block-edit behavior and size/rate-limit handling |
-| Document comments | Wake the Bot at the exact discussion location | `@` trigger, comment history, partial/whole routing, reply in the comment area | Whether participating comments later allow follow-ups without `@`; current default is strict `@` |
-| Cards and Tool trace | See progress, control execution, and inspect Tool use | Cards for status/interaction; Tool trace is a view over Trajectory | Minimum useful card set and presentation details |
+| Feishu IM | Natural private, group, and Thread interaction | Long-lived connection, identity and dedupe, private/group/Thread routing | Real-client acceptance matrix and failure/retry behavior |
+| Feishu documents | Read and produce collaborative documents | Read, create, and edit through product Tools | Detailed block-edit behavior and size/rate-limit handling |
+| Document comments | Wake at the exact discussion location | Explicit `@` trigger, comment history, partial/whole routing, reply in place | Whether participating comments later allow follow-ups without `@`; current default is strict `@` |
+| Cards and Tool trace | See progress, control execution, and inspect Tool use | Cards for status/interaction; Tool trace is a Trajectory view | Minimum useful card set and presentation details |
+| BrowserUse | Complete browser tasks in the product container | Container browser with per-Session contexts where useful | Browser distribution and profile/login-state policy after language choice |
+| ComputerUse | Operate desktop applications without remote devices | Container virtual desktop with a container-level GUI lock | Virtual desktop stack, application set, crash recovery, coordinate scaling |
 
-## AgentWiki and self-extension
+## AgentWiki and behavior assets
 
 | Feature | Value | Current approach | Remaining decision |
 |---|---|---|---|
-| AgentWiki root | One versioned home for evolving agent behavior, long-term knowledge, and Skill assets | `AGENTS.md`, `wiki/`, and `skills/` share Git sync/versioning but not consumption semantics | Synchronization and publication workflow details |
-| Wiki | Recover long-term facts and SOP without a separate memory service | Shallow dynamic categories, self-describing Markdown entries, live `grep → read` retrieval, bounded `ls` for writes, stable-ID relations, structural validation, and a maintenance-generated INDEX excluded from normal grep. Writes default to `draft_only`; ordinary active writes need `curate`, behavior files need `behavior`. Retrieval defaults: 10 header candidates, 20 body matches with 5 per file and 2 context lines, 16 KiB grep/read outputs and 200-line reads. Baseline: [agentwiki.md](../design/agentwiki.md) | M3 closed; Git synchronization and writer coordination belong to M6/M7 |
-| SkillLoader | Reuse working methods without injecting every Skill | Standard `SKILL.md`, metadata index outside runtime-owned System Prompt, current content loaded on demand; updated context is appended rather than pinned for a Turn. Wiki Skill teaches Wiki usage | Compatibility policy for dynamic Skill changes |
-| WorkingContext vs Skill | Keep two kinds of behavior guidance distinct | WorkingContext is a current reminder, Skill is reusable instructions | No automatic promotion between them or automatic RSI |
+| AgentWiki root | One versioned home for agent behavior, knowledge, and Skills | `AGENTS.md`, `wiki/`, and `skills/` share Git versioning but not consumption semantics | Synchronization and publication workflow |
+| Wiki | Recover long-term facts and SOP without a separate Memory service | Shallow dynamic categories, live grep/read, stable-ID relations, structural validation, and maintenance-generated INDEX. Baseline: [agentwiki.md](../design/agentwiki.md) | M3 closed; Git synchronization and writer coordination belong to M6/M7 |
+| Wiki write authorization | Accumulate knowledge without turning every inference into confirmed fact | Default `draft_only`; ordinary active writes need `curate`; behavior files need `behavior` | Authorization event schema and enforcement through every write path |
+| SkillLoader | Reuse working methods without injecting every Skill | Standard `SKILL.md`, metadata outside System Prompt, current content loaded on demand | Compatibility policy for dynamic Skill changes |
+| `AGENTS.md` and Prompt | Maintain evolving behavior without rewriting runtime Prompt | Independent `AGENTS.md` refresh only on explicit user request; selected System and Compaction Prompts remain product documents | Refresh and compatibility verification |
 
-## Trajectory and data
-
-| Feature | Value | Current approach | Remaining decision |
-|---|---|---|---|
-| TrajectoryRecorder | Know what actually happened in every Session | Mandatory append-only logical events in the AgentLoop, not optional instrumentation; the only execution-history authority | **Open:** field-level event schema and projection/rebuild rules |
-| Assets | Preserve large observations without bloating event payloads | Store files separately and reference them with content identity | Asset lifecycle, size limits, deduplication, and backup format |
-| SessionCatalog | Find Sessions and inspect their history | `list_sessions`, `get_trajectory` with cursor-based pagination | Filter fields, access rules, and handling of incomplete records |
-| Batch export | Analyze or reuse Sessions only when explicitly requested | On-demand archive with manifest and one JSONL per Session; no background export | Streaming archive layout and failure/resume behavior |
-| `trace/v1` | Preserve full evidence for diagnosis | Full runtime and interaction events | Final versioned field definitions |
-| `aift/v1` | Reuse model interactions for training workflows | `session_id`, `messages`, `tools`, and necessary metadata; tool calls/results correlated | Provider-specific chat-template conversion remains a separate projection |
-| Session projection | Restore current context without replaying side effects or keeping a second persistent truth | Derive from Trajectory starting at the latest compaction and subsequent events; current WorkingContext, budget, workspace, and delivery state are computed from events | Exact projection and validation rules for interrupted or malformed events |
-
-## Operations and engineering
+## Product data and operations
 
 | Feature | Value | Current approach | Remaining decision |
 |---|---|---|---|
-| Persistent storage | Recover Sessions after restart | SQLite with WAL and `synchronous=FULL` on a persistent container volume; each state change is one append-only event with no persistent Snapshot; assets external and persisted before event references; no FTS in the core write path; synchronous authoritative writes | Exact schema, migration, transaction, and corruption recovery. No dedicated storage benchmark is required unless real latency or contention appears |
-| Backup | Avoid losing operational history | SQLite online backup plus asset snapshots; raw Trajectory stays out of public Git | Schedule, destination, encryption, retention, and restore drills |
-| GC | Bound disk usage | Manual, dry-run capable, age filters, active/pinned exclusions; no default auto-delete | Disk budget, retention values, and asset cleanup ordering |
-| Execution trust and credentials | Allow rich Tools without exposing every resource to every process | Current baseline does not add a read-only approval matrix or administrator budget ceiling | **Open:** actor trust, secret injection, child-process environment, browser login state, network/file reach |
-| Deployment | One reproducible environment for Bot and GUI work | Single container with Bot, browser, and virtual desktop | Process supervision, health checks, persistent mounts, and resource limits |
-| Language and code layout | Keep the system stable and easy to modify | Candidates: Rust or Python; container Browser/Computer ecology is a primary factor | **Open:** language, package layout, dependency policy |
-| CI | Catch regressions as features are implemented | GitHub-hosted public repository; CI not yet defined | **Open:** formatting, tests, container build, and real smoke-test levels |
+| TrajectoryRecorder | Know what happened in every Session | Mandatory append-only events through nextloop, with product-specific payloads as needed | Product payload schema and projection/rebuild rules |
+| Assets | Preserve large observations without large event payloads | External content-addressed files with references and previews | Lifecycle, size limits, deduplication, backup format, GC ordering |
+| SessionCatalog | Find Sessions and inspect history | `list_sessions`, cursor-based `get_trajectory`, explicit export | Filters, access rules, incomplete records |
+| Batch export | Analyze or reuse Sessions only on request | On-demand archive with manifest and one JSONL per Session; no background export | Streaming layout and failure/resume behavior |
+| `trace/v1` | Preserve full evidence | Full runtime and interaction events | Final versioned fields |
+| `aift/v1` | Reuse model interactions for training workflows | `session_id`, `messages`, `tools`, and correlated Tool Calls/Results | Provider-specific template conversion remains separate |
+| Persistent storage | Recover after restart | SQLite WAL and `synchronous=FULL`, authoritative synchronous writes, no persistent Snapshot | Exact schema, migration, transactions, corruption recovery |
+| Backup | Avoid losing operational history | SQLite online backup plus asset snapshots; raw Trajectory stays out of public Git | Schedule, destination, encryption, retention, restore drills |
+| GC | Bound disk usage | Manual, dry-run capable, age filters, active/pinned exclusions; no default auto-delete | Disk budget, retention, asset cleanup ordering |
+
+## Trust and engineering
+
+| Feature | Value | Current approach | Remaining decision |
+|---|---|---|---|
+| Execution trust and credentials | Rich Tools without exposing every resource to every process | Runtime-derived authorization; no generic read-only approval matrix or administrator budget ceiling | **Open:** actor trust, secret injection, child-process environment, browser login state, network/file reach |
+| Deployment | One reproducible product container | Bot, browser, and virtual desktop in one container | Process supervision, health checks, mounts, resource limits |
+| Language and code layout | Stable, maintainable product and Adapter code | Candidates: Rust or Python; Browser/Computer and nextloop integration ecology matter | **Open:** language, package layout, dependency policy |
+| CI | Catch product and integration regressions | Public GitHub repository with contract and product smoke levels | **Open:** formatting, tests, container build, real smoke-test levels |
 
 ## Parking lot
 
-| Idea | Why it is parked | Reopen when |
-|---|---|---|
-| Agent-defined Hooks | Trajectory already covers recording and audit; no current scenario requires automatically changing subsequent behavior | A concrete deterministic action is required that cannot be left to the next model decision; then design the event, activation, recursion, timeout, and failure semantics |
-| Read-only `/btw` side questions | An IM bot can answer progress through the main Session; a separate completion adds concurrency without a concrete use case | A recurring scenario needs side questions that must not affect the main task |
+- Agent-defined Hooks and fixed before/after Tool hooks.
+- Read-only `/btw` side questions.
+- Automatic RSI, Wiki promotion, or Skill promotion.
+- Cross-entry Session resume by default.
+- Vector/semantic Wiki index unless grep demonstrably fails.
+- Generic EventBus and remote replay.
+- Multiple virtual desktops or remote device bridges.
+- External coding Harness or coding mode.
