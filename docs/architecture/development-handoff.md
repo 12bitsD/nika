@@ -4,9 +4,9 @@ Last verified: 2026-11-06. Execution baseline: `main@96135332fb4e5b4d9e2621afd63
 
 ## What nika is now
 
-nika is the product layer for Feishu, coding, documents, and container-based Browser/Computer work. [nextloop](https://github.com/12bitsD/nextloop) is the reusable execution library.
+nika maintains the complete personal agent and superagent architecture: personal assistance, goal and verification ownership, Proactive behavior, AgentWiki, Skills, Feishu, concrete Tools, product data, and deployment. [nextloop](https://github.com/12bitsD/nextloop) is only the reusable execution library.
 
-The split does not create a second Agent, Router, EventBus, or service. nika calls nextloop through adapters. nextloop does not know Feishu IDs, Wiki paths, or nika's desktop locks.
+The split does not create a second Agent, Router, EventBus, or service. nika calls nextloop through adapters. nextloop does not know Feishu IDs, Wiki paths, or nika's desktop locks. The name superagent does not itself adopt Router/Worker, background jobs, or a multi-agent framework.
 
 ## Product flow
 

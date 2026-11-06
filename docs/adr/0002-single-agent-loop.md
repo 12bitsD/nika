@@ -1,16 +1,18 @@
-# ADR-0002: Consolidate nika as the product layer over nextloop
+# ADR-0002: Consolidate nika as the personal agent and superagent architecture over nextloop
 
 - Status: Accepted as the current product architecture baseline
 - Date: 2026-10-26
-- Updated: 2026-11-06 for the nextloop repository split
+- Updated: 2026-11-06 for the nextloop repository split and personal agent + superagent scope
 - Supersedes: [ADR-0001](0001-unified-agent-runtime.md)
-- Scope: Feishu, product capabilities, AgentWiki, Prompt content, concrete Tools, product data, deployment, and Proactive behavior
+- Scope: personal agent and superagent behavior, Feishu, AgentWiki, Prompt content, concrete Tools, product data, deployment, and Proactive behavior
 
 ## Context
 
-nika is a lightweight personal Bot built around Feishu, coding, documents, and one container for BrowserUse and ComputerUse. The product and reusable execution protocol now have separate repositories.
+nika maintains the complete personal agent and superagent architecture: personal assistance, goal and verification ownership, Proactive behavior, AgentWiki, Skills, Feishu, concrete Tools, product data, and deployment. nextloop is only the reusable execution protocol, not the home of nika's personal agent or superagent behavior.
 
-[nextloop ADR-0001](https://github.com/12bitsD/nextloop/blob/main/docs/adr/0001-embeddable-agent-loop.md) defines the reusable execution-library boundary. This ADR retains only nika's product decisions and does not duplicate nextloop's execution protocol.
+The name superagent does not itself adopt Router/Worker, persistent background jobs, or a multi-agent framework. Any future supervision or multi-agent collaboration is a separate nika product decision.
+
+[nextloop ADR-0001](https://github.com/12bitsD/nextloop/blob/main/docs/adr/0001-embeddable-agent-loop.md) defines the reusable execution-library boundary. This ADR retains nika's product and superagent decisions and does not duplicate nextloop's execution protocol.
 
 ## 1. Repository and execution boundary
 

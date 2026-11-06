@@ -1,15 +1,17 @@
 # nika
 
-A lightweight personal agent bot for Feishu, coding, documents, and container-based Browser/Computer work, powered by [nextloop](https://github.com/12bitsD/nextloop).
+A personal agent and superagent architecture for Feishu, coding, documents, and container-based Browser/Computer work, powered by [nextloop](https://github.com/12bitsD/nextloop).
 
-Status: **product architecture and feature design**. There is no runtime implementation yet.
+Status: **architecture and feature design**. There is no runtime implementation yet.
 
-## Product boundary
+## Architecture boundary
 
-nika and nextloop have separate responsibilities:
+nika owns the complete personal agent and superagent architecture; nextloop owns only the reusable execution protocol:
 
-- **nextloop** owns the reusable execution protocol: AgentLoop, ContextBuilder, ReAct, Tool admission and outcomes, event projection, cancellation, recovery, and delivery-only retry.
-- **nika** owns the product: Feishu channels and documents, AgentWiki, Skills, Prompt content, concrete Tools, credentials, deployment, and Proactive behavior.
+- **nextloop**: AgentLoop, ContextBuilder, ReAct, Tool admission and outcomes, event projection, cancellation, recovery, and delivery-only retry.
+- **nika**: personal assistance and superagent coordination, including goals, verification, Proactive behavior, AgentWiki, Skills, Prompt content, Feishu, concrete Tools, credentials, deployment, and any future supervision or multi-agent collaboration explicitly chosen later.
+
+The name superagent does not itself adopt Router/Worker, persistent background jobs, or a multi-agent framework. Those remain separate product decisions.
 
 Do not maintain a second copy of nextloop's execution design here. Former Loop paths contain navigation pointers only.
 

@@ -7,6 +7,8 @@ This file defines nika's product vocabulary. Execution terms such as AgentLoop, 
 | Term | Definition |
 |---|---|
 | AgentWiki | nika's shared root for `AGENTS.md`, long-term Wiki content, and Skills. Wiki and Skills have separate consumption mechanisms. |
+| Personal agent | nika's user-facing assistant for conversation, coding, documents, knowledge, and task completion. |
+| Superagent | nika's product-level coordination of goals, verification, Proactive behavior, authorization, resources, and any future supervision or multi-agent collaboration explicitly chosen later. The name alone does not adopt Router/Worker, background jobs, or a multi-agent framework. |
 | AGENTS.md | nika's independently maintained description of the Agent's evolving role, personality, and interaction style. It enters the first request as runtime context and is changed only by explicit user request. |
 | System Prompt | nika's runtime-owned contract for action, verification, harness use, and delivery, maintained in `docs/design/system-prompt.md`. |
 | Compaction Prompt | nika's dedicated Prompt for reconstructing current task state during nextloop compaction. |

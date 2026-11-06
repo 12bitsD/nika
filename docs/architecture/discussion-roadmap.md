@@ -6,6 +6,7 @@ Current stage: **M5 — product integration and Tool contracts**. [nextloop](htt
 
 ## Fixed product guardrails
 
+- nika owns the complete personal agent and superagent architecture; nextloop owns only the reusable execution protocol.
 - Feishu is the primary channel, including documents and comments.
 - Bot, BrowserUse, and ComputerUse run in one container.
 - One AgentWiki root, with Wiki and Skill consumed differently.
