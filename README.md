@@ -34,6 +34,8 @@ nika concrete Tools and product state
 
 [nika ADR-0002](docs/adr/0002-single-agent-loop.md) is the product baseline. [nextloop ADR-0001](https://github.com/12bitsD/nextloop/blob/main/docs/adr/0001-embeddable-agent-loop.md) is the reusable execution-library baseline.
 
+Start with [VISION.md](VISION.md) for goals, scope, and design values, and [requirements.md](docs/architecture/requirements.md) for capability ownership and acceptance.
+
 ## Confirmed product direction
 
 | Area | Current approach |
