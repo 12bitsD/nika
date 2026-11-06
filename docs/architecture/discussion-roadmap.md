@@ -2,7 +2,7 @@
 
 Purpose: close nika's product architecture without duplicating nextloop's execution roadmap. This file controls product topics, order, and closure.
 
-Current stage: **M5 — product integration and Tool contracts**. [nextloop](https://github.com/12bitsD/nextloop) owns ReAct, ContextBuilder, and execution-protocol work.
+Current stage: **M5 — product capabilities and Adapter contracts**. nextloop independently owns ReAct, ContextBuilder, and execution-protocol work; the two repositories do not share implementation milestones.
 
 ## Fixed product guardrails
 
@@ -12,7 +12,7 @@ Current stage: **M5 — product integration and Tool contracts**. [nextloop](htt
 - One AgentWiki root, with Wiki and Skill consumed differently.
 - Every Session produces Trajectory; export is on demand, with no automatic RSI or Wiki promotion.
 - Keep the product small: no generic EventBus, remote replay, task-card system, agent-defined Hooks, or unrelated platforms.
-- Do not duplicate nextloop's execution contracts here.
+- Do not duplicate nextloop's execution contracts or create shared implementation milestones. Product work depends only on the versioned [nextloop Adapter contract](nextloop-adapter.md).
 
 ## Route
 

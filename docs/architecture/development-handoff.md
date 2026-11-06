@@ -60,4 +60,4 @@ There is no runtime implementation, test suite, Dockerfile, CI workflow, release
 4. [AgentWiki](../design/agentwiki.md) and the two Prompt files for knowledge and content policy.
 5. nextloop's [roadmap](https://github.com/12bitsD/nextloop/blob/main/docs/architecture/discussion-roadmap.md) and [feature worklist](https://github.com/12bitsD/nextloop/blob/main/docs/architecture/feature-worklist.md) for execution work.
 
-The next implementation step is to finish Tool/Adapter contracts jointly with nextloop's ReAct protocol, then close Proactive and M6/M7 before choosing the engineering stack. No runtime implementation is authorized by this handoff.
+The next implementation step is for nika to finish its independent Tool and Adapter contracts while nextloop independently closes ReAct and Tool contracts. Integration depends only on the versioned public contract, not on joint design or implementation milestones. Proactive and M6/M7 remain nika's own follow-up work. No runtime implementation is authorized by this handoff.

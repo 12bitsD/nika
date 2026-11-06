@@ -58,6 +58,7 @@ These are design decisions, not implemented capabilities.
 - [Discussion roadmap](docs/architecture/discussion-roadmap.md) — product topics, order, and close conditions.
 - [Development handoff](docs/architecture/development-handoff.md) — current product state and reading path.
 - [Feature worklist](docs/architecture/feature-worklist.md) — product capabilities and remaining decisions.
+- [nextloop Adapter contract](docs/architecture/nextloop-adapter.md) — the only cross-repository integration dependency and its version policy.
 - [System Prompt](docs/design/system-prompt.md) — selected task-flow Prompt and Tool Catalog.
 - [Compaction Prompt](docs/design/compaction-prompt.md) — selected task-state reconstruction Prompt.
 - [AgentWiki design](docs/design/agentwiki.md) — Wiki structure, consumption, writes, and maintenance.
