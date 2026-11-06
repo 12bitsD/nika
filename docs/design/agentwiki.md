@@ -1,21 +1,32 @@
 # AgentWiki design
 
-Status: **M3 complete**. Git synchronization and concurrent writer coordination are owned by M6/M7. This document does not authorize runtime implementation.
+Status: **M3 refined with L1 Synapse Map, `when` triggers, H2-TOC search, and Git-backed optimistic writes**. Implemented in `nika` as one runtime module (`src/nika/wiki.py`) plus one built-in Skill (`AgentWiki/skills/wiki/SKILL.md`).
 
 ## Purpose
 
-AgentWiki is the only long-term knowledge source for projects, concepts, people, SOPs, profiles, and evolving agent behavior. There is no separate Memory service, automatic Recall Subagent, vector store, or second curated fact store in the baseline.
+AgentWiki is the only long-term knowledge source for projects, concepts, people, playbooks, profiles, and evolving agent behavior. There is no separate Memory service, vector database, automatic Recall Subagent, or second curated fact store.
 
-Wiki is distinct from Trajectory: Wiki holds curated long-term knowledge, while Trajectory remains the authoritative record of execution history. Raw Trajectory is not automatically promoted into Wiki.
+Wiki is distinct from Trajectory: Wiki holds curated long-term knowledge, while Trajectory remains the authoritative record of execution history.
 
-## Accepted structure
+## Dual implementation shape in `nika`
+
+AgentWiki lives in the `nika` repository and consists of two parts:
+
+1. **Runtime module (`src/nika/wiki.py`):**
+   - Compiles the deterministic **L1 Synapse Map (`WIKI_MAP`, ≤ 2 KiB)** injected alongside `AGENTS.md` on Session start.
+   - Provides three high-leverage tools: `wiki_search`, `wiki_read`, and `wiki_upsert`.
+   - Enforces the hard read-only guard on behavior files (`AGENTS.md`, `skills/**`), lenient frontmatter normalization (Postel's Law), automatic per-upsert Git commits, and single-line delivery receipts.
+2. **Built-in Skill (`AgentWiki/skills/wiki/SKILL.md`):**
+   - Teaches the model how to write high-signal `when` triggers (symptoms and scenarios rather than static archival labels), how to navigate via `L1 Synapse Map` → `wiki_search` (with H2 TOC) → targeted `wiki_read`, and when to curate knowledge proactively.
+
+## Accepted directory structure
 
 ```text
 AgentWiki/
-  AGENTS.md
+  AGENTS.md           # role, persona, and expression style (behavior-locked)
   wiki/
-    INDEX.md          # generated for maintenance; not required by model reads or writes
-    inbox/            # uncertain, unclassified, or unconfirmed entries
+    INDEX.md          # maintenance inventory generated offline; ignored by runtime search
+    inbox/            # uncertain, transient, or unconfirmed drafts
     projects/
     concepts/
     people/
@@ -23,139 +34,80 @@ AgentWiki/
     profiles/
     references/
   skills/
+    wiki/SKILL.md     # built-in Wiki consumption & curation skill (behavior-locked)
 ```
 
-These categories are conventions, not a closed enum. The Agent may create a shallow, lowercase, plural ASCII category when none of the existing categories is appropriate. Deep taxonomies are avoided; cross-category relationships use entry IDs rather than directory inheritance.
+Categories under `wiki/` are shallow conventions, not a closed enum. The Agent may create a new lowercase plural ASCII directory when needed.
 
-`AGENTS.md` is the independently maintained home for the Agent's role, personality, long-term interaction style, and evolving preferences. It is not compiled into the runtime-owned System Prompt. A snapshot is injected as a separate runtime context message in the first request of a Session, with lower authority than the System Prompt, and is changed or refreshed only when the user explicitly requests it. Project-level `AGENTS.md` files in code workspaces remain project context and are a different concern.
+## Four core mechanisms
 
-## Entries are self-describing
+### 1. L1 Synapse Map (`WIKI_MAP`, ≤ 2 KiB) — Zero-cost cold start & jargon resolution
 
-Each entry is a Markdown file with a small frontmatter header:
+Without an initial map, a model either suffers from cold-start amnesia (not knowing that "配置隔离" maps to `projects/tcc.md`) or wastes steps running blind `grep` calls on every turn.
+
+- On Session start (cached in the immutable initial prefix alongside `AGENTS.md`), `src/nika/wiki.py` compiles a compact **L1 Synapse Map** (target ≤ 1.5–2 KiB, ~400–500 tokens) from `active` entry headers:
+  ```text
+  # Wiki Synapse Map (id: when / keys)
+  [projects] tcc: 动态配置中心, namespace, branch隔离, mr隔离 | chatty-eval: highway, 429静默重试, chatcmpl_id
+  [people] linhao: 林昊, 碳烤小火龙
+  [playbooks] retry-observability-trap: 排查静默重试、任务假活、429限流未上报、外层拿不到request_id时
+  ```
+- Because it sits in the Session's initial message prefix, it hits **100% KV Cache** on every subsequent Step.
+- When the user mentions an alias, person, or symptom that matches the Synapse Map, the model can jump straight to `wiki_read` or a targeted `wiki_search` in one step.
+
+### 2. Self-describing headers with `when` triggers (Conditioned-reflex memory)
+
+Static archives describe *what happened in the past*; great agent memory describes *when to recall this in the future*. Every Markdown entry starts with a concise YAML frontmatter header:
 
 ```yaml
 ---
-id: chatty-eval-capability
-kind: project
+id: retry-observability-trap
+kind: playbook
 state: active
-summary: Chatty/Highway evaluation background, verification methods, and confirmed lessons.
-keys: chatty chatty-cli highway highway-agents 429 retry chatcmpl verbose
-related: highway-e2e-verification silent-retry-observability
-verified: 2026-10-27
+when: 排查静默重试、任务假活、429限流未上报、外层事件循环拿不到底层SDK错误或chatcmpl_id时
+summary: 底层 model-chain 自动重试会吞掉单次 attempt 错误，必须在 retry 层透传 observer 事件与错误元数据。
+keys: chatty-cli highway 429 retry chatcmpl_id mirage
+related: chatty-eval-capability
+verified: 2026-11-06
 ---
 ```
 
-The minimum required fields are `id`, `kind`, `summary`, and `keys`.
+- `id`: stable unique identifier across moves.
+- `kind`: category (`project`, `playbook`, `person`, `concept`, `profile`, `reference`, etc.).
+- `state`: `draft` (unconfirmed/working note), `active` (curated fact/SOP), or `superseded` (historical, with `replaced_by`).
+- `when`: symptom-, intent-, or scenario-driven trigger phrase enabling cross-task memory connection.
+- `summary`: one-line takeaway.
+- `keys`: exact identifiers, aliases, error codes, and jargon.
+- `verified`: `YYYY-MM-DD` date of last factual verification.
 
-- `id` is a stable, unique identifier. Relations use IDs rather than paths so entries can move without breaking references.
-- `kind` describes what the entry is and may expand with new categories.
-- `summary` lets the Agent judge relevance from a grep result before reading the body.
-- `keys` contains likely future search terms, including meaningful names, aliases, technical concepts, and error codes. It is not an unreadable encoding or an exhaustive bag of words.
-- `related` links independently useful entries by ID.
-- `verified` supports freshness decisions. File modification time alone does not reconfirm the content.
+### 3. Two-stage retrieval (`wiki_search` with H2 TOC + targeted `wiki_read`)
 
-Lifecycle state is lightweight:
+Instead of forcing 4–5 round-trips (`ls` → `grep(headers)` → `grep(body)` → `read`), `src/nika/wiki.py` exposes two fast primitives:
 
-- `draft`: unconfirmed or unclassified; retrievable but must be treated cautiously.
-- `active`: currently valid curated knowledge.
-- `superseded`: retained history, with `replaced_by` pointing to the current entry when available.
+1. **`wiki_search(query, *, kind=None, state=None)`:**
+   - Searches frontmatter (`id`, `when`, `keys`, `summary`) and body text via ripgrep in one call (automatically excluding `INDEX.md`).
+   - For every matched file, returns:
+     - **Full frontmatter header** (`id`, `state`, `verified`, `when`, `summary`, `related`);
+     - **Markdown `## H2` Table of Contents with line ranges** (e.g., `L12-L28 ## 当前隔离模型`, `L56-L78 ## 遗留与风险`);
+     - **Top body match snippets** (±2 lines with line numbers).
+2. **`wiki_read(path_or_id, *, start_line=1, end_line=200)`:**
+   - Resolves either a relative path (`projects/tcc.md`) or an entry `id` (`tcc`).
+   - Reads the exact section line range identified from the `wiki_search` H2 TOC.
 
-An entry should cover one independently retrievable topic. Large project files are not split mechanically; a concept or lesson gets its own entry only when independent retrieval or reuse justifies it.
+### 4. Git-backed optimistic writes + single-line receipt (`wiki_upsert`)
 
-## Model consumption path
+Bureaucratic runtime write-permission state machines (`draft_only` vs. `curate` NLP classification) block proactive assistance. Instead, `src/nika/wiki.py` uses **hard boundary protection + optimistic Git-backed knowledge writes**:
 
-Normal retrieval is deliberately small:
+- **Hard lock on behavior files:** `AGENTS.md` and `skills/**` are strictly read-only to `wiki_upsert` and file/shell tools unless unlocked by an explicit user command or confirmed `WaitingRequest`.
+- **Optimistic `wiki_upsert(path, frontmatter, body, source_refs)` on `wiki/**`:**
+  - The model may write `state: draft` for tentative notes or `state: active` when recording user-confirmed facts or verified task conclusions (with `source_refs` citing the Session/Turn or document URL).
+  - **Lenient normalization (Postel's Law):** If `summary` or `keys` slightly exceed recommended lengths, `wiki_upsert` normalizes/trims whitespace and records a soft warning rather than failing the Step.
+  - **Automatic Git commit & single-line receipt:** Every `wiki_upsert` automatically creates an atomic Git commit (`wiki(turn): upsert <id> [state] → <short_sha>`) and returns a receipt token. The final reply appends a compact one-line footer:
+    `📝 Wiki: projects/tcc.md (active) · rev a1b2c3d`
+  - If the user disagrees with any proactive update, a casual reply ("撤掉刚才那条 wiki") lets the Agent run `git revert a1b2c3d` deterministically.
 
-```text
-grep headers or body
-→ judge path / kind / state / summary / keys
-→ grep within selected files when useful
-→ read only the required section or line range
-→ optionally follow related IDs
-```
+## Maintenance and Compaction
 
-There is no mandatory `list` operation or INDEX read in the model workflow. A future `list` may be added as a derived display convenience, but it would have no independent storage or maintenance requirement.
-
-Runtime Wiki grep excludes generated INDEX and other explicitly generated maintenance files by default, preventing duplicate hits. Grep supports path narrowing, context lines, and result limits. `scope="headers"` is an engineering convenience for searching frontmatter without requiring complex regular expressions; it is not a semantic Recall system.
-
-`ls` is retained only for bounded filesystem discovery. It returns directories and filenames without summaries and is primarily used before writes. It is distinct from the removed summary-heavy `list` catalog.
-
-## Retrieval output budgets
-
-Default budgets are intentionally small:
-
-| Operation | Default | At the boundary |
-|---|---|---|
-| `grep(scope="headers")` | 10 candidate entries | Return `has_more`; narrow before paging |
-| Body grep | 20 matches, at most 5 per file | Return `truncated` and a cursor |
-| Match context | 2 lines before and after | The Agent may request more for a selected match |
-| Total grep output | 16 KiB | Truncate explicitly without silent loss |
-| `read` | At most 200 lines or 16 KiB, whichever comes first | Continue by offset or cursor |
-
-The Agent may reduce these limits. More content is fetched through pagination rather than enlarging a single response. `summary` and `keys` are single-line fields limited to 240 and 160 characters respectively; oversized headers are rejected for rewriting rather than silently truncated. Long body lines are truncated explicitly while preserving valid UTF-8 and output structure.
-
-Broad queries are narrowed by adding terms, path, `kind`, `state`, or `scope="headers"` before fetching another page. Pagination is for intentional enumeration, not automatic recall of every result. One specific search and one broader alias/body retry are enough before reporting `unknown` or using another authorized source.
-
-Responses contain matches or entries, `truncated`, `has_more`, and an optional `next_cursor`. Ordering is deterministic by path and line number; no opaque relevance score is added. All lifecycle states remain retrievable and visible, while current-fact lookups prefer `active`.
-
-## Write path and authorization
-
-Write permission is separate from knowledge provenance. `source_refs` records where knowledge came from; authorization is derived by Runtime from actual user instructions and confirmation events. The Agent cannot grant itself permission by declaring an `origin` or writing an authorization field.
-
-Runtime has three semantic write scopes:
-
-- `draft_only` is the default. The Agent may create, refine, or abandon unconfirmed drafts that have plausible reuse value.
-- `curate` is granted by an explicit user request to record, correct, or curate knowledge in the current task or Run. It allows ordinary Wiki entries to be created or updated as `active`, promoted, and superseded within that scope.
-- `behavior` is a separate explicit authorization for changes to `AGENTS.md`, Skills, or Wiki Skill. A generic request to record knowledge does not imply behavior authorization.
-
-Deterministic INDEX regeneration and structural validation do not require semantic write authorization. All Agent Wiki writes use the same validated write path; direct file or Shell writes must not bypass it. Concurrent writer ownership is an M6 resource concern.
-
-The Wiki Skill teaches the Agent to:
-
-1. avoid writing when there is no plausible reuse value;
-2. run bounded `ls` to discover existing categories;
-3. grep names, aliases, and keys to avoid duplicates;
-4. use an existing suitable category, create a new shallow one, or use `inbox/` for uncertain material;
-5. write one Markdown entry with a self-describing header and sourced body;
-6. check a few likely future queries when practical;
-7. avoid editing INDEX or maintaining duplicate summaries.
-
-Drafts remain grep-able and must be presented as unconfirmed. The Agent may refine or abandon a draft before it is selected or cited by the user; it must not silently discard drafts that have entered a user review or maintenance flow.
-
-Ordinary semantic updates to an `active` entry require `curate` and do not automatically create a superseded entry. `superseded` is used only when an authorized new conclusion replaces the old one, with `replaced_by` preserving the relationship. Newer material alone does not silently overturn an active conclusion. Physical deletion is not the default lifecycle operation and requires explicit user instruction.
-
-Every semantic write records `entry_id`, `from_state`, `to_state`, `content_hash`, `authorization_scope`, `run_id`, and applicable `source_refs`. Runtime fills the authorization scope; the model cannot self-attest it. Wiki Git records content evolution, while Trajectory records the execution and authorization context.
-
-Runtime write validation checks required fields, unique IDs, safe paths, supported lifecycle values, parseable frontmatter, resolvable `related` IDs, and valid `replaced_by` references. New knowledge is grep-able immediately after writing; no maintenance run is required before it can be used.
-
-## Maintenance INDEX and lifecycle
-
-`wiki/INDEX.md` is a maintenance artifact, not a second fact source. A deterministic maintenance operation scans entry headers and regenerates one root inventory with paths, kinds, summaries, lifecycle states, and freshness information. It need not be current between runs and carries its generation time.
-
-Maintenance may also report duplicate IDs or aliases, suspicious duplicate categories, missing headers, broken relations, orphaned entries, stale or superseded knowledge, and oversized files. Deterministic INDEX regeneration may be automatic; semantic merges, moves, splits, and category changes follow their separate authorization rules.
-
-The Agent's normal read and write paths never depend on INDEX being present or up to date. This preserves a low-cognitive-overhead model interface while retaining a global inventory for long-term maintenance.
-
-## Wiki Skill
-
-`skills/wiki/SKILL.md` is the authoritative guide for Wiki consumption and maintenance. It explains when to grep or read, how to write useful `summary` and `keys`, how to inspect `state` and `verified`, how to follow `related`, how to create categories and entries, and how to preserve sources and uncertainty.
-
-System Prompt does not duplicate this manual. Skill metadata is supplied separately from the runtime-owned System Prompt, and the Skill body is loaded on demand.
-
-## Updates and compaction
-
-Wiki entries are read live. `grep/read` returns ordinary results and the entry header; the Agent decides how to search, how much to read, whether the content is sufficient, and whether another lookup is needed. Runtime does not require a content hash or guarantee that a recalled entry remains the latest version. Already submitted Tool Results remain unchanged, while a later read may append newer content.
-
-Skills are also dynamic at the point of use. A later Skill load may read the current version rather than waiting for a new Turn. Any updated Skill context is appended without rewriting earlier context.
-
-`AGENTS.md` is changed or refreshed only when the user explicitly requests it. File changes, timestamps, a new Turn, or compaction do not silently replace the current agent context.
-
-Compaction is an ordinary Agent summary request. The runtime uses the dedicated [compaction-prompt.md](compaction-prompt.md) with `AGENTS.md` and current Conversation plus a final summarize instruction, with Tool definitions and execution disabled. The Agent reconstructs current task state by future action value rather than following a mandatory Wiki, Skill, revision, or Tool-transcript checklist.
-
-The next request is normal System Prompt + `AGENTS.md` + the new task summary + the latest active WorkingContext, if any + subsequent messages. Validation requires a nonempty, meaningfully smaller result, unchanged normal System Prompt and `AGENTS.md`, valid request structure, and successful `I + O` preflight. Runtime state remains in Session. Old Trajectory is never rewritten.
-
-## Remaining coordination
-
-- **Synchronization:** Git publication and concurrent writer behavior, coordinated with M6/M7 rather than duplicated here.
-
-No vector database, knowledge graph, dedicated Memory manager, automatic Recall Subagent, or mandatory per-entry INDEX is part of the current baseline. These are reconsidered only after concrete failure cases show that the accepted structure cannot handle them.
+- `wiki/INDEX.md` is regenerated offline/periodically for human browsing and hygiene checks (duplicate IDs, broken `related` links, stale `draft` entries). Normal model reads and writes never depend on `INDEX.md`.
+- `AGENTS.md` and the `L1 Synapse Map` stay frozen within a Session to preserve prompt cache hits, refreshing only on a new Session or explicit user request.
+- Compaction reconstructs active task state via [compaction-prompt.md](compaction-prompt.md) without re-copying full Wiki files that can be re-read by `id`.

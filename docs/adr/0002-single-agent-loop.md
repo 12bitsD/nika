@@ -85,15 +85,12 @@ AgentWiki/
 
 Wiki is the only long-term knowledge source. There is no separate Memory service, automatic Recall Subagent, vector store, or second curated fact store. Wiki and Trajectory remain distinct; raw Trajectory is not automatically promoted into Wiki.
 
-The consumption and maintenance contract is in [agentwiki.md](../design/agentwiki.md):
+The consumption and maintenance contract is in [agentwiki.md](../design/agentwiki.md), implemented in `nika` as one runtime module (`src/nika/wiki.py`) plus one built-in Skill (`AgentWiki/skills/wiki/SKILL.md`):
 
-- shallow, dynamically extensible categories;
-- self-describing Markdown headers with `id/kind/state/summary/keys` and optional relations and freshness metadata;
-- live `grep → read` retrieval, with bounded `ls` for write-time discovery;
-- stable-ID relations and structural write validation;
-- a maintenance-generated INDEX that is not required by the model.
-
-Writes default to `draft_only`. Ordinary active knowledge requires `curate` within an explicitly authorized task or Run. Changes to `AGENTS.md` or Skills require separate `behavior` authorization. Provenance does not itself grant write permission.
+- **L1 Synapse Map (`WIKI_MAP`, ≤ 2 KiB)** injected with `AGENTS.md` at Session start for zero-cost cold-start recall and alias resolution;
+- self-describing Markdown headers with `id/kind/state/when/summary/keys`, where `when` captures symptom/scenario triggers for cross-task memory connection;
+- two-stage retrieval via `wiki_search` (returning Frontmatter + Markdown `## H2` line-range TOC + snippets) followed by targeted `wiki_read`;
+- **Git-backed optimistic writes (`wiki_upsert`)** on `wiki/**` with lenient validation, automatic Git commits, and a single-line receipt in the reply footer, paired with a hard read-only lock on behavior files (`AGENTS.md`, `skills/**`).
 
 `AGENTS.md` contains the Agent's evolving role, personality, and interaction style. It is maintained independently of System Prompt and changed or refreshed only by explicit user request. Skills use standard `SKILL.md` packages and current content at the point of use.
 

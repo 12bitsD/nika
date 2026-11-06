@@ -29,8 +29,8 @@ Purpose: track product capabilities. **Open** marks a material design or verific
 | Feature | Value | Current approach | Remaining decision |
 |---|---|---|---|
 | AgentWiki root | One versioned home for agent behavior, knowledge, and Skills | `AGENTS.md`, `wiki/`, and `skills/` share Git versioning but not consumption semantics | Synchronization and publication workflow |
-| Wiki | Recover long-term facts and SOP without a separate Memory service | Shallow dynamic categories, live grep/read, stable-ID relations, structural validation, and maintenance-generated INDEX. Baseline: [agentwiki.md](../design/agentwiki.md) | M3 closed; Git synchronization and writer coordination belong to M6/M7 |
-| Wiki write authorization | Accumulate knowledge without turning every inference into confirmed fact | Default `draft_only`; ordinary active writes need `curate`; behavior files need `behavior` | Authorization event schema and enforcement through every write path |
+| Wiki (`src/nika/wiki.py` + `skills/wiki/SKILL.md`) | Recover and connect long-term facts/SOPs without a Vector DB | L1 Synapse Map (≤ 2 KiB), `when` symptom triggers, `wiki_search` with H2 TOC, `wiki_read`, and Git-backed optimistic `wiki_upsert` with single-line receipts ([agentwiki.md](../design/agentwiki.md)) | Module and built-in Skill implementation in `nika` |
+| Wiki write protection | Proactive knowledge curation without silent behavior tampering | Optimistic Git-committed writes + reply receipt on `wiki/**`; hard read-only lock on `AGENTS.md` and `skills/**` unless explicitly unlocked | Enforcement across `wiki_upsert`, file, and shell tools |
 | SkillLoader | Reuse working methods without injecting every Skill | Standard `SKILL.md`, metadata outside System Prompt, current content loaded on demand | Compatibility policy for dynamic Skill changes |
 | `AGENTS.md` and Prompt | Maintain evolving behavior without rewriting runtime Prompt | Independent `AGENTS.md` refresh only on explicit user request; selected System and Compaction Prompts remain product documents | Refresh and compatibility verification |
 
