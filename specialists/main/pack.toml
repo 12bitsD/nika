@@ -5,10 +5,13 @@ event_schema = "1.1"
 tools = [
   "wiki",
   "read",
+  "grep",
+  "pocket",
+  "feishu_doc",
   "session_ctl",
   "dispatch_task",
 ]
-skills = ["wiki"]
+skills = ["wiki", "feishu_doc"]
 
 [loop]
 context_window = 128000
