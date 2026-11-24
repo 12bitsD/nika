@@ -80,6 +80,7 @@ class ReportStatus(StrEnum):
     NEED_DECISION = "need_decision"
     BLOCKED = "blocked"
     HANDOFF = "handoff"
+    DISPATCHED = "dispatched"
 
 
 @dataclass(frozen=True)

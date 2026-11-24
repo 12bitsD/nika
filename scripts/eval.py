@@ -34,6 +34,7 @@ from nika.eval_runner import (
     load_provider_settings,
     run_case_with_retry,
 )
+from nika.eval_suites_s1 import run_stage1_evals
 
 
 def _build_probe_registry(
@@ -139,6 +140,8 @@ async def _run_suite(stage: int, env: Mapping[str, str], repo: Path) -> int:
                     lambda: _case_f0_judge_rejects_hallucination(provider),
                 )
             )
+        if stage >= 1:
+            results.extend(await run_stage1_evals(provider, repo))
     lines = [
         f"[{r.outcome.value.upper()}] {r.feature}/{r.case_id}: {r.detail}"
         for r in results
