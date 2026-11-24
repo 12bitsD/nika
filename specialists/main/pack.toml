@@ -1,0 +1,16 @@
+schema = "nika.specialist/v1"
+name = "main"
+min_nextloop = "1.1.0rc1"
+event_schema = "1.1"
+tools = [
+  "wiki",
+  "read",
+  "session_ctl",
+  "dispatch_task",
+]
+skills = ["wiki"]
+
+[loop]
+context_window = 128000
+output_reserve = 4096
+max_steps = 20
