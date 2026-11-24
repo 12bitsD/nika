@@ -9,6 +9,7 @@ import httpx
 import pytest
 from nextloop import (
     CandidateRequest,
+    Completed,
     FinishReason,
     ModelResponse,
     SQLiteEventStore,
@@ -321,6 +322,135 @@ async def test_pocket_webhook_silent_boundary_and_409_expiry(
         assert len(h.tx.created_cards) == 0
 
         await _send_pocket_webhook(h, "del_alert", "cbk_3", "LOCK_ERR check")
+        assert len(h.tx.created_cards) == 1
+    finally:
+        await h.close()
+
+
+async def test_workspace_wiki_deny_macos_alias_and_grep_guards(
+    tmp_path: Path,
+) -> None:
+    wiki_dir = tmp_path / "work_wiki"
+    wiki_dir.mkdir()
+    (wiki_dir / "note.md").write_text("# Wiki\n")
+    outside = tmp_path / "outside_secret.txt"
+    outside.write_text("TOP_SECRET_LINE\n")
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "escape_link.txt").symlink_to(outside)
+
+    runtime = NikaToolRuntime()
+    register_workspace_tools(
+        runtime,
+        WorkspaceMount(roots=(tmp_path,), denied_write_roots=(wiki_dir,)),
+    )
+    denied = await runtime.invoke_direct(
+        "write", {"path": str(wiki_dir / "note.md"), "content": "bypass"}
+    )
+    assert denied.is_error is True
+    bad_rx = await runtime.invoke_direct(
+        "grep", {"pattern": "[unclosed", "path": str(ws)}
+    )
+    assert bad_rx.is_error is True
+    sym_grep = await runtime.invoke_direct(
+        "grep", {"pattern": "TOP_SECRET_.*", "path": str(ws)}
+    )
+    assert sym_grep.content.startswith("No matches")
+    null_bash = await runtime.invoke_direct(
+        "bash", {"command": "echo ok", "timeout_seconds": None, "cwd": str(ws)}
+    )
+    assert null_bash.is_error is False and "ok" in null_bash.content
+
+
+async def test_macos_tmp_alias_and_feishu_doc_fenced_h2() -> None:
+    tmp_alias = Path("/tmp") / f"nika_alias_{os.getpid()}"
+    tmp_alias.mkdir(exist_ok=True)
+    try:
+        rt_alias = NikaToolRuntime()
+        register_workspace_tools(rt_alias, WorkspaceMount(roots=(tmp_alias,)))
+        alias_w = await rt_alias.invoke_direct(
+            "write", {"path": str(tmp_alias / "ok.txt"), "content": "hi"}
+        )
+        assert alias_w.is_error is False
+    finally:
+        for child in tmp_alias.glob("*"):
+            child.unlink()
+        tmp_alias.rmdir()
+
+    fenced_doc = (
+        "# Guide\n\n## Setup\n```bash\n## comment inside fence\necho 1\n```\n\n"
+        "## Target\nold\n"
+    )
+    dstore = InMemoryFeishuDocStore({"d_fence": fenced_doc})
+    rt = NikaToolRuntime()
+    register_feishu_doc_tools(rt, dstore)
+    f_res = await rt.invoke_direct(
+        "feishu_doc",
+        {
+            "action": "replace_section",
+            "doc_token": "d_fence",
+            "heading": "Target",
+            "content": "new",
+        },
+    )
+    assert f_res.is_error is False
+    after_doc = await dstore.read_doc("d_fence")
+    assert "## comment inside fence\necho 1" in after_doc
+    assert "## Target\nnew" in after_doc
+
+
+class _NaturalLockSummaryProvider:
+    def __init__(self) -> None:
+        self.step = 0
+
+    async def complete(
+        self,
+        request: CandidateRequest,
+        *,
+        attempt: int,
+        cancel: asyncio.Event,
+    ) -> ModelResponse:
+        del request, attempt, cancel
+        self.step += 1
+        if self.step == 1:
+            return ModelResponse(
+                tool_calls=(
+                    ToolCall(
+                        "c_lk",
+                        "pocket",
+                        '{"method":"todo.toggle","params":{"todo_id":"td_lk"}}',
+                    ),
+                ),
+                finish_reason=FinishReason.TOOL_CALLS,
+            )
+        return ModelResponse(
+            content="该闹钟已在手机端上锁，无法远程关闭。",
+            finish_reason=FinishReason.STOP,
+        )
+
+
+async def test_pocket_non_json_502_and_structured_lock_escalation(
+    tmp_path: Path,
+) -> None:
+    def _bad_gateway(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(502, text="<html>502 Bad Gateway</html>")
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(_bad_gateway),
+        base_url="http://pocket.local",
+    ) as bad_client:
+        rpc = PocketRpcClient("http://pocket.local", "tok", bad_client)
+        out = await rpc.call("event.list", {})
+        assert isinstance(out, Completed)
+        assert out.is_error is True and "502" in out.content
+
+    server = LocalPocketContractServer(agent_token="pkt_tok")
+    server.seed_todo("td_lk", "Alarm", locked=True)
+    server.seed_delivery("del_nl", "cbk_nl")
+    h = _make_pocket_harness(tmp_path, server)
+    h.sched.set_provider(_NaturalLockSummaryProvider())
+    try:
+        await _send_pocket_webhook(h, "del_nl", "cbk_nl", "帮我关掉闹钟")
         assert len(h.tx.created_cards) == 1
     finally:
         await h.close()

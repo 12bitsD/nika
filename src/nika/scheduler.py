@@ -48,6 +48,7 @@ from .feishu import (
     PreviewProgressBridge,
 )
 from .packs import SpecialistPack
+from .pocket import PocketCallbackNotice
 from .tools import NikaToolRuntime
 
 ORCHESTRATION_TOOLS = ("dispatch_task",)
@@ -62,7 +63,7 @@ class SchedulerDeps:
     packs: Mapping[SpecialistId, SpecialistPack]
     feishu_transport: FeishuTransport
     shared_skills_dir: Path | None = None
-    pocket_callback_sender: Callable[[ReplyTarget, str], Any] | None = None
+    pocket_callback_sender: Callable[[PocketCallbackNotice], Any] | None = None
     clock: Callable[[], float] = time.monotonic
 
 
@@ -124,7 +125,20 @@ class TaskDeliveryOwner:
             target.kind == ReplyKind.POCKET_CALLBACK
             and self._deps.pocket_callback_sender is not None
         ):
-            await self._deps.pocket_callback_sender(target, text)
+            locked = self._deps.runtime.pop_cloud_locked(task.session_id)
+            reason = (
+                "cloud_locked"
+                if locked
+                else (
+                    task.report_status.value
+                    if task.report_status
+                    in (ReportStatus.NEED_DECISION, ReportStatus.BLOCKED)
+                    else ""
+                )
+            )
+            await self._deps.pocket_callback_sender(
+                PocketCallbackNotice(target, text, reason)
+            )
 
 
 DISPATCH_TOOL_SPEC = ToolSpec(

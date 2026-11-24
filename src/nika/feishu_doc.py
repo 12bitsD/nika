@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+import asyncio
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Any, Protocol
 
 from nextloop import (
@@ -11,7 +13,7 @@ from nextloop import (
     ToolSpec,
 )
 
-from .tools import NikaToolRuntime
+from .tools import NikaToolRuntime, opt_str, req_str
 
 
 class FeishuDocTransport(Protocol):
@@ -43,11 +45,37 @@ def _normalize_heading(raw: str) -> str:
     return raw.strip().lstrip("#").strip()
 
 
+def _fence_marker(stripped: str) -> str | None:
+    if stripped.startswith("```"):
+        return "```"
+    if stripped.startswith("~~~"):
+        return "~~~"
+    return None
+
+
+def _next_fence_state(active: str | None, line: str) -> str | None:
+    marker = _fence_marker(line.lstrip())
+    if marker is None:
+        return active
+    if active is None:
+        return marker
+    return None if marker == active else active
+
+
+def _find_h2_indices(lines: Sequence[str]) -> list[int]:
+    indices: list[int] = []
+    fence: str | None = None
+    for idx, line in enumerate(lines):
+        prev_fence = fence
+        fence = _next_fence_state(fence, line)
+        if prev_fence is None and fence is None and line.startswith("## "):
+            indices.append(idx)
+    return indices
+
+
 def _parse_h2_blocks(markdown: str) -> tuple[str, list[tuple[str, str]]]:
     lines = markdown.splitlines()
-    h2_indices = [
-        idx for idx, line in enumerate(lines) if line.startswith("## ")
-    ]
+    h2_indices = _find_h2_indices(lines)
     if not h2_indices:
         return markdown.strip(), []
     preamble = "\n".join(lines[: h2_indices[0]]).strip()
@@ -121,24 +149,27 @@ FEISHU_DOC_SPEC = ToolSpec(
 )
 
 
-def register_feishu_doc_tools(
-    runtime: NikaToolRuntime, store: FeishuDocTransport
-) -> None:
-    async def _handle_doc(
-        args: Mapping[str, Any], _ctx: ToolContext
-    ) -> Completed:
-        action = str(args.get("action", ""))
-        token = str(args.get("doc_token", "")).strip()
-        if not token:
-            return Completed("doc_token is required", is_error=True)
+def _refine_doc_spec(spec: ToolSpec, args: Mapping[str, Any]) -> ToolSpec:
+    if args.get("action") == "read":
+        return replace(
+            spec,
+            mode=ToolExecutionMode.PARALLEL,
+            effect=ToolEffect.READ_ONLY,
+        )
+    return spec
+
+
+async def _mutate_doc_locked(
+    store: FeishuDocTransport,
+    lock: asyncio.Lock,
+    token: str,
+    spec: tuple[str, str, str],
+) -> Completed:
+    action, heading, content = spec
+    async with lock:
         before_md = await store.read_doc(token)
-        if action == "read":
-            return Completed(_format_doc_read(before_md))
         expected_md, err = _build_section_update(
-            before_md,
-            action,
-            str(args.get("heading", "")),
-            str(args.get("content", "")),
+            before_md, action, heading, content
         )
         if err is not None or expected_md is None:
             return Completed(err or "invalid doc edit", is_error=True)
@@ -149,8 +180,40 @@ def register_feishu_doc_tools(
                 f"Mandatory read-back verification failed on {token}",
                 is_error=True,
             )
-        return Completed(
-            f"Updated {token} section '## {_normalize_heading(str(args.get('heading', '')))}' (read-back verified)"
+    return Completed(
+        f"Updated {token} section '## {_normalize_heading(heading)}' (read-back verified)"
+    )
+
+
+def register_feishu_doc_tools(
+    runtime: NikaToolRuntime, store: FeishuDocTransport
+) -> None:
+    doc_locks: dict[str, asyncio.Lock] = {}
+
+    async def _handle_doc(
+        args: Mapping[str, Any], _ctx: ToolContext
+    ) -> Completed:
+        action = req_str(args, "action") or ""
+        token = (req_str(args, "doc_token") or "").strip()
+        if not token:
+            return Completed(
+                "doc_token must be a non-empty string", is_error=True
+            )
+        if action == "read":
+            return Completed(_format_doc_read(await store.read_doc(token)))
+        heading = req_str(args, "heading")
+        content = (
+            req_str(args, "content")
+            if "content" in args
+            else opt_str(args, "content")
+        )
+        if heading is None or content is None:
+            return Completed(
+                "heading and content must be strings", is_error=True
+            )
+        lock = doc_locks.setdefault(token, asyncio.Lock())
+        return await _mutate_doc_locked(
+            store, lock, token, (action, heading, content)
         )
 
-    runtime.register(FEISHU_DOC_SPEC, _handle_doc)
+    runtime.register(FEISHU_DOC_SPEC, _handle_doc, refiner=_refine_doc_spec)

@@ -4,8 +4,9 @@ import hashlib
 import hmac
 import json
 from collections.abc import Awaitable, Callable, Mapping, MutableMapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from nextloop import (
@@ -13,7 +14,9 @@ from nextloop import (
     ToolContext,
     ToolEffect,
     ToolExecutionMode,
+    ToolOutcome,
     ToolSpec,
+    UncertainSettled,
     new_id,
 )
 
@@ -24,8 +27,9 @@ from .contracts import (
     ReplyTarget,
 )
 from .feishu import FeishuTransport, StopAndIngestTarget
-from .tools import POCKET_READ_METHODS, NikaToolRuntime
+from .tools import NikaToolRuntime, req_str
 
+POCKET_READ_METHODS = ("event.list", "todo.list")
 POCKET_METHODS = (
     "event.list",
     "event.set",
@@ -42,6 +46,7 @@ FEISHU_NOTIFY_KEYWORDS = (
     "feishu alert",
     "ping me",
 )
+SILENT_409_CODES = frozenset({"DELIVERY_CANCELLED", "DELIVERY_EXPIRED"})
 
 
 @dataclass(frozen=True)
@@ -61,6 +66,36 @@ class PocketAdapterDeps:
     http_client: httpx.AsyncClient
     feishu_transport: FeishuTransport
     owner_dm_channel: str = ""
+    allowed_callback_origin: str = ""
+
+
+@dataclass(frozen=True)
+class PocketCallbackNotice:
+    target: ReplyTarget
+    text: str
+    alert_reason: str = ""
+
+
+def _parse_json_dict(resp: httpx.Response) -> tuple[dict[str, Any], bool]:
+    try:
+        parsed = resp.json()
+    except ValueError:
+        return {}, False
+    if isinstance(parsed, dict):
+        return parsed, True
+    return {}, False
+
+
+def _format_rpc_http_error(resp: httpx.Response) -> tuple[str, Completed]:
+    payload, ok = _parse_json_dict(resp)
+    err = payload.get("error") if ok else None
+    if isinstance(err, Mapping):
+        code = str(err.get("code", "RPC_ERROR"))
+        msg = str(err.get("message", resp.text[:200]))
+    else:
+        code = "HTTP_ERROR"
+        msg = str(err) if err is not None else resp.text[:200]
+    return code, Completed(f"{resp.status_code} {code}: {msg}", is_error=True)
 
 
 class PocketRpcClient:
@@ -76,26 +111,39 @@ class PocketRpcClient:
         method: str,
         params: Mapping[str, Any],
         operation_id: str | None = None,
-    ) -> Completed:
+    ) -> ToolOutcome:
         if method not in POCKET_METHODS:
             return Completed(
                 f"Unsupported Pocket method: {method}", is_error=True
             )
         body: dict[str, Any] = {"source": "agent", "params": dict(params)}
+        req_key = operation_id or new_id("op")
         if method not in POCKET_READ_METHODS:
-            req_key = operation_id or new_id("op")
             body["request_id"] = f"nika_{req_key}"
-        resp = await self._client.post(
-            f"{self._base_url}/v1/rpc/{method}",
-            headers={"Authorization": f"Bearer {self._token}"},
-            json=body,
-        )
-        payload: dict[str, Any] = resp.json()
+        try:
+            resp = await self._client.post(
+                f"{self._base_url}/v1/rpc/{method}",
+                headers={"Authorization": f"Bearer {self._token}"},
+                json=body,
+                follow_redirects=False,
+            )
+        except httpx.TimeoutException as exc:
+            if method in POCKET_READ_METHODS:
+                return Completed(f"Pocket read timeout: {exc}", is_error=True)
+            return UncertainSettled(
+                f"Pocket mutation '{method}' timed out (request_id=nika_{req_key}); "
+                "query current state before retrying."
+            )
+        except httpx.HTTPError as exc:
+            return Completed(f"Pocket transport error: {exc}", is_error=True)
         if resp.status_code >= 400:
-            err = payload.get("error") or {}
-            code = err.get("code", "RPC_ERROR")
-            msg = err.get("message", resp.text)
-            return Completed(f"{resp.status_code} {code}: {msg}", is_error=True)
+            _, err_out = _format_rpc_http_error(resp)
+            return err_out
+        payload, ok = _parse_json_dict(resp)
+        if not ok:
+            return Completed(
+                "Pocket RPC returned invalid JSON object", is_error=True
+            )
         return Completed(
             json.dumps(payload.get("data", payload), ensure_ascii=False)
         )
@@ -121,18 +169,39 @@ POCKET_TOOL_SPEC = ToolSpec(
 )
 
 
+def _refine_pocket_spec(spec: ToolSpec, args: Mapping[str, Any]) -> ToolSpec:
+    if args.get("method") in POCKET_READ_METHODS:
+        return replace(
+            spec,
+            mode=ToolExecutionMode.PARALLEL,
+            effect=ToolEffect.READ_ONLY,
+        )
+    return spec
+
+
 def register_pocket_tools(
     runtime: NikaToolRuntime, rpc: PocketRpcClient
 ) -> None:
     async def _handle_pocket(
         args: Mapping[str, Any], ctx: ToolContext
-    ) -> Completed:
-        method = str(args.get("method", ""))
+    ) -> ToolOutcome:
+        method = req_str(args, "method")
+        if method is None:
+            return Completed("method must be a string", is_error=True)
         raw_params = args.get("params")
         params = raw_params if isinstance(raw_params, Mapping) else {}
-        return await rpc.call(method, params, operation_id=ctx.operation_id)
+        outcome = await rpc.call(method, params, operation_id=ctx.operation_id)
+        if (
+            isinstance(outcome, Completed)
+            and outcome.is_error
+            and "409 CLOUD_LOCKED" in outcome.content
+        ):
+            runtime.record_cloud_locked(ctx.session_id)
+        return outcome
 
-    runtime.register(POCKET_TOOL_SPEC, _handle_pocket)
+    runtime.register(
+        POCKET_TOOL_SPEC, _handle_pocket, refiner=_refine_pocket_spec
+    )
 
 
 def _wants_feishu_notify(prompt: str) -> bool:
@@ -142,15 +211,34 @@ def _wants_feishu_notify(prompt: str) -> bool:
     return any(kw in low for kw in FEISHU_NOTIFY_KEYWORDS)
 
 
-def _should_escalate(target: ReplyTarget, text: str) -> bool:
-    if target.metadata.get("notify_requested"):
+def _valid_callback_url(raw_url: str, allowed_origin: str) -> bool:
+    parts = urlsplit(raw_url.strip())
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return False
+    if not allowed_origin.strip():
         return True
-    upper = text.upper()
-    return (
-        "CLOUD_LOCKED" in upper
-        or upper.startswith("ERROR")
-        or "NEED_DECISION" in upper
+    base = urlsplit(allowed_origin.strip())
+    return (parts.scheme, parts.hostname, parts.port) == (
+        base.scheme,
+        base.hostname,
+        base.port,
     )
+
+
+def _is_silent_409(resp: httpx.Response) -> bool:
+    if resp.status_code != 409:
+        return False
+    payload, ok = _parse_json_dict(resp)
+    err = payload.get("error") if ok else None
+    code = str(err.get("code", "")) if isinstance(err, Mapping) else ""
+    return code in SILENT_409_CODES
+
+
+def _should_escalate(notice: PocketCallbackNotice) -> bool:
+    if notice.alert_reason or notice.target.metadata.get("notify_requested"):
+        return True
+    upper = notice.text.upper()
+    return "CLOUD_LOCKED" in upper or upper.startswith("ERROR")
 
 
 class PocketAdapter:
@@ -159,6 +247,7 @@ class PocketAdapter:
         self._client = deps.http_client
         self._feishu = deps.feishu_transport
         self._owner_dm = deps.owner_dm_channel.strip()
+        self._allowed_origin = deps.allowed_callback_origin.strip()
         self._scheduler: StopAndIngestTarget | None = None
 
     def bind_scheduler(self, scheduler: StopAndIngestTarget) -> None:
@@ -174,6 +263,10 @@ class PocketAdapter:
         self, auth_header: str, req: PocketWebhookRequest
     ) -> bool:
         if not self._verify_bearer(auth_header) or self._scheduler is None:
+            return False
+        if not _valid_callback_url(
+            req.result_callback_url, self._allowed_origin
+        ):
             return False
         did = req.delivery_id.strip()
         target = ReplyTarget(
@@ -198,17 +291,24 @@ class PocketAdapter:
         await self._scheduler.ingest(envelope)
         return True
 
-    async def deliver_callback(self, target: ReplyTarget, text: str) -> None:
+    async def deliver_callback(self, notice: PocketCallbackNotice) -> None:
+        target = notice.target
+        if not _valid_callback_url(target.callback_url, self._allowed_origin):
+            raise ValueError(f"Rejected callback URL: {target.callback_url}")
         resp = await self._client.post(
             target.callback_url,
             headers={"Authorization": f"Bearer {target.callback_token}"},
-            json={"result_summary": text},
+            json={"result_summary": notice.text},
+            follow_redirects=False,
         )
-        if resp.status_code == 409:
+        if _is_silent_409(resp):
             return
+        should_ping = bool(target.notify_channel_id) and (
+            _should_escalate(notice) or resp.status_code >= 400
+        )
+        if should_ping:
+            await self._feishu.send_card(target.notify_channel_id, notice.text)
         resp.raise_for_status()
-        if target.notify_channel_id and _should_escalate(target, text):
-            await self._feishu.send_card(target.notify_channel_id, text)
 
 
 def _events_overlap(items: list[dict[str, Any]]) -> bool:

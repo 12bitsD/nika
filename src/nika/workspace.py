@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import re
 import signal
@@ -21,7 +22,7 @@ from nextloop import (
 )
 
 from .contracts import SpecialistId
-from .tools import NikaToolRuntime
+from .tools import NikaToolRuntime, opt_str, req_str
 from .wiki import PROTECTED_ANYWHERE, PROTECTED_LOWER
 
 SECRET_PREFIXES = (
@@ -46,6 +47,7 @@ SECRET_SUFFIXES = (
 class WorkspaceMount:
     roots: tuple[Path, ...]
     scratch_roots: tuple[Path, ...] = ()
+    denied_write_roots: tuple[Path, ...] = ()
 
 
 def _is_secret_env_key(key: str) -> bool:
@@ -67,25 +69,40 @@ def _allowed_roots_for(
     return tuple(r.expanduser().resolve() for r in combined)
 
 
-def _has_symlink_along(root: Path, target: Path) -> bool:
-    if target != root and root not in target.parents:
+def _has_symlink_below_root(matching_root: Path, lexical: Path) -> bool:
+    ancestors = [lexical, *lexical.parents]
+    base_anc = next(
+        (
+            a
+            for a in ancestors
+            if not a.is_symlink() and a.resolve() == matching_root
+        ),
+        None,
+    )
+    if base_anc is None:
+        base_anc = next(
+            (a for a in ancestors if a.resolve() == matching_root), None
+        )
+    if base_anc is None:
         return True
-    rel_parts = target.relative_to(root).parts
+    rel_parts = lexical.relative_to(base_anc).parts
     chain = [
-        root.joinpath(*rel_parts[: idx + 1]) for idx in range(len(rel_parts))
+        base_anc.joinpath(*rel_parts[: idx + 1])
+        for idx in range(len(rel_parts))
     ]
     return any(p.is_symlink() for p in chain)
 
 
 def _resolve_ws_read(raw_path: str, allowed_roots: Sequence[Path]) -> Path:
-    if not allowed_roots:
+    if not allowed_roots or not raw_path.strip():
         raise PermissionError("No workspace roots permitted for caller")
     raw = Path(raw_path).expanduser()
     base_candidate = raw if raw.is_absolute() else (allowed_roots[0] / raw)
     resolved = base_candidate.resolve()
-    for root in allowed_roots:
-        if resolved == root or root in resolved.parents:
-            return resolved
+    if any(
+        resolved == root or root in resolved.parents for root in allowed_roots
+    ):
+        return resolved
     raise PermissionError(f"Path outside workspace roots: {raw_path}")
 
 
@@ -99,20 +116,30 @@ def _check_protected_rel(rel_parts: Sequence[str], raw_path: str) -> None:
         raise PermissionError(f"Protected behavior path denied: {raw_path}")
 
 
-def _resolve_ws_write(raw_path: str, allowed_roots: Sequence[Path]) -> Path:
-    if not allowed_roots:
+def _resolve_ws_write(
+    raw_path: str,
+    allowed_roots: Sequence[Path],
+    denied_roots: Sequence[Path] = (),
+) -> Path:
+    if not allowed_roots or not raw_path.strip():
         raise PermissionError("No writable workspace roots for caller")
     raw = Path(raw_path).expanduser()
+    if ".." in raw.parts:
+        raise PermissionError(f"Parent traversal '..' denied: {raw_path}")
     lexical = raw if raw.is_absolute() else (allowed_roots[0] / raw)
+    resolved = lexical.resolve()
     matching_root = next(
-        (r for r in allowed_roots if r in lexical.resolve().parents),
-        None,
+        (r for r in allowed_roots if r in resolved.parents), None
     )
     if matching_root is None:
         raise PermissionError(f"Write target escapes workspace: {raw_path}")
-    if lexical.is_symlink() or _has_symlink_along(matching_root, lexical):
+    resolved_denied = [d.expanduser().resolve() for d in denied_roots]
+    if any(resolved == d or d in resolved.parents for d in resolved_denied):
+        raise PermissionError(
+            f"Denied write root (use dedicated tool): {raw_path}"
+        )
+    if lexical.is_symlink() or _has_symlink_below_root(matching_root, lexical):
         raise PermissionError(f"Symlink write denied: {raw_path}")
-    resolved = lexical.resolve()
     _check_protected_rel(resolved.relative_to(matching_root).parts, raw_path)
     return resolved
 
@@ -143,21 +170,29 @@ def _grep_single_file(file_path: Path, rx: re.Pattern[str]) -> list[str]:
     ]
 
 
+def _collect_grep_files(target: Path) -> list[Path]:
+    if target.is_file():
+        return [] if target.is_symlink() else [target]
+    root = target.resolve()
+    return [
+        f
+        for f in sorted(root.rglob("*"))
+        if not f.is_symlink()
+        and not _has_symlink_below_root(root, f)
+        and f.is_file()
+        and ".git" not in f.relative_to(root).parts
+    ]
+
+
 def _run_grep_sync(target: Path, pattern: str) -> Completed:
     if not pattern:
         return Completed("pattern must be non-empty", is_error=True)
-    rx = re.compile(pattern)
-    files = (
-        [target]
-        if target.is_file()
-        else [
-            f
-            for f in sorted(target.rglob("*"))
-            if f.is_file() and ".git" not in f.parts
-        ]
-    )
+    try:
+        rx = re.compile(pattern)
+    except re.error as exc:
+        return Completed(f"Invalid regex pattern: {exc}", is_error=True)
     hits: list[str] = []
-    for f in files:
+    for f in _collect_grep_files(target):
         hits.extend(_grep_single_file(f, rx))
     if not hits:
         return Completed(f"No matches for pattern: {pattern}")
@@ -173,12 +208,23 @@ def _decode_bash_result(
     out_b: bytes, err_b: bytes, returncode: int | None
 ) -> Completed:
     combined = (
-        out_b.decode("utf-8", errors="replace")
-        + err_b.decode("utf-8", errors="replace")
+        out_b.decode("utf-8", errors="replace")[:32_000]
+        + err_b.decode("utf-8", errors="replace")[:32_000]
     ).strip()
     return Completed(
         combined or f"(exit {returncode})", is_error=(returncode != 0)
     )
+
+
+def _parse_bash_timeout(raw: Any) -> float | None:
+    if raw is None:
+        return 30.0
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    val = float(raw)
+    if not math.isfinite(val) or val <= 0:
+        return None
+    return min(val, 300.0)
 
 
 async def _run_bash_command(
@@ -285,7 +331,7 @@ BASH_SPEC = ToolSpec(
             "command": {"type": "string"},
             "cwd": {"type": "string"},
             "timeout_seconds": {
-                "type": "number",
+                "type": ["number", "null"],
                 "minimum": 0.1,
                 "maximum": 300,
             },
@@ -298,6 +344,74 @@ BASH_SPEC = ToolSpec(
 )
 
 
+class _WorkspaceToolSet:
+    def __init__(
+        self,
+        runtime: NikaToolRuntime,
+        mount: WorkspaceMount,
+        clean_env: Mapping[str, str],
+    ) -> None:
+        self._runtime = runtime
+        self._mount = mount
+        self._env = clean_env
+
+    def write(self, args: Mapping[str, Any], ctx: ToolContext) -> Completed:
+        path_s = req_str(args, "path")
+        content_s = req_str(args, "content")
+        if path_s is None or content_s is None:
+            return Completed("path and content must be strings", is_error=True)
+        roots = _allowed_roots_for(self._runtime, ctx.session_id, self._mount)
+        target = _resolve_ws_write(
+            path_s, roots, self._mount.denied_write_roots
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content_s, encoding="utf-8")
+        return Completed(f"Wrote {target}")
+
+    def edit(self, args: Mapping[str, Any], ctx: ToolContext) -> Completed:
+        path_s = req_str(args, "path")
+        old_s = req_str(args, "old_text")
+        new_s = req_str(args, "new_text")
+        if path_s is None or old_s is None or new_s is None:
+            return Completed(
+                "path, old_text, and new_text must be strings", is_error=True
+            )
+        roots = _allowed_roots_for(self._runtime, ctx.session_id, self._mount)
+        target = _resolve_ws_write(
+            path_s, roots, self._mount.denied_write_roots
+        )
+        return _apply_edit(target, old_s, new_s)
+
+    async def grep(
+        self, args: Mapping[str, Any], ctx: ToolContext
+    ) -> Completed:
+        pat_s = req_str(args, "pattern")
+        if pat_s is None:
+            return Completed("pattern must be a string", is_error=True)
+        roots = _allowed_roots_for(self._runtime, ctx.session_id, self._mount)
+        raw_p = opt_str(args, "path") or (str(roots[0]) if roots else "")
+        target = _resolve_ws_read(raw_p, roots)
+        return await asyncio.to_thread(_run_grep_sync, target, pat_s)
+
+    async def bash(
+        self, args: Mapping[str, Any], ctx: ToolContext
+    ) -> ToolOutcome:
+        cmd_s = req_str(args, "command")
+        timeout = _parse_bash_timeout(args.get("timeout_seconds"))
+        if cmd_s is None or timeout is None:
+            return Completed(
+                "Invalid command or timeout_seconds", is_error=True
+            )
+        roots = _allowed_roots_for(self._runtime, ctx.session_id, self._mount)
+        raw_cwd = opt_str(args, "cwd") or (str(roots[0]) if roots else "")
+        cwd = _resolve_ws_read(raw_cwd, roots)
+        if not cwd.is_dir():
+            return Completed(f"cwd is not a directory: {cwd}", is_error=True)
+        return await _run_bash_command(
+            cmd_s, cwd, self._env, (ctx.cancel, timeout)
+        )
+
+
 def register_workspace_tools(
     runtime: NikaToolRuntime,
     mount: WorkspaceMount,
@@ -307,41 +421,8 @@ def register_workspace_tools(
     clean_env = _sanitize_env(
         base_env if base_env is not None else {"PATH": "/usr/bin:/bin"}
     )
-
-    def _write_handler(args: Mapping[str, Any], ctx: ToolContext) -> Completed:
-        roots = _allowed_roots_for(runtime, ctx.session_id, mount)
-        target = _resolve_ws_write(str(args["path"]), roots)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(str(args["content"]), encoding="utf-8")
-        return Completed(f"Wrote {target}")
-
-    def _edit_handler(args: Mapping[str, Any], ctx: ToolContext) -> Completed:
-        roots = _allowed_roots_for(runtime, ctx.session_id, mount)
-        target = _resolve_ws_write(str(args["path"]), roots)
-        return _apply_edit(target, str(args["old_text"]), str(args["new_text"]))
-
-    async def _grep_handler(
-        args: Mapping[str, Any], ctx: ToolContext
-    ) -> Completed:
-        roots = _allowed_roots_for(runtime, ctx.session_id, mount)
-        raw_p = str(args.get("path") or (roots[0] if roots else ""))
-        target = _resolve_ws_read(raw_p, roots)
-        return await asyncio.to_thread(
-            _run_grep_sync, target, str(args["pattern"])
-        )
-
-    async def _bash_handler(
-        args: Mapping[str, Any], ctx: ToolContext
-    ) -> ToolOutcome:
-        roots = _allowed_roots_for(runtime, ctx.session_id, mount)
-        raw_cwd = str(args.get("cwd") or (roots[0] if roots else ""))
-        cwd = _resolve_ws_read(raw_cwd, roots)
-        timeout = float(args.get("timeout_seconds", 30.0))
-        return await _run_bash_command(
-            str(args["command"]), cwd, clean_env, (ctx.cancel, timeout)
-        )
-
-    runtime.register(WRITE_SPEC, _write_handler)
-    runtime.register(EDIT_SPEC, _edit_handler)
-    runtime.register(GREP_SPEC, _grep_handler)
-    runtime.register(BASH_SPEC, _bash_handler)
+    toolset = _WorkspaceToolSet(runtime, mount, clean_env)
+    runtime.register(WRITE_SPEC, toolset.write)
+    runtime.register(EDIT_SPEC, toolset.edit)
+    runtime.register(GREP_SPEC, toolset.grep)
+    runtime.register(BASH_SPEC, toolset.bash)

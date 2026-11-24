@@ -2,15 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Mapping, Sequence
-from dataclasses import replace
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from nextloop import (
     Completed,
     ToolCall,
-    ToolEffect,
-    ToolExecutionMode,
     ToolOutcome,
     ToolRegistry,
     ToolSpec,
@@ -21,24 +18,30 @@ from nextloop.execute.tools import ToolHandler, validate_calls
 
 from .contracts import SessionIdentity
 
-POCKET_READ_METHODS = ("event.list", "todo.list")
+SpecRefiner = Callable[[ToolSpec, Mapping[str, Any]], ToolSpec]
 
 
-def _refine_validated(
+def opt_str(args: Mapping[str, Any], key: str) -> str:
+    val = args.get(key)
+    return val if isinstance(val, str) else ""
+
+
+def req_str(args: Mapping[str, Any], key: str) -> str | None:
+    val = args.get(key)
+    return val if isinstance(val, str) else None
+
+
+def _apply_refiners(
     validated: tuple[ValidatedCall, ...],
+    refiners: Mapping[str, SpecRefiner],
 ) -> tuple[ValidatedCall, ...]:
     refined: list[ValidatedCall] = []
     for item in validated:
-        if (
-            item.call.name == "pocket"
-            and item.arguments.get("method") in POCKET_READ_METHODS
-        ):
-            read_spec = replace(
-                item.spec,
-                mode=ToolExecutionMode.PARALLEL,
-                effect=ToolEffect.READ_ONLY,
-            )
-            refined.append(replace(item, spec=read_spec))
+        fn = refiners.get(item.call.name)
+        if fn is not None:
+            from dataclasses import replace
+
+            refined.append(replace(item, spec=fn(item.spec, item.arguments)))
         else:
             refined.append(item)
     return tuple(refined)
@@ -66,7 +69,7 @@ class ScopedToolRuntime:
         self, calls: Sequence[ToolCall]
     ) -> tuple[tuple[ValidatedCall, ...], tuple[ValidationIssue, ...]]:
         validated, issues = validate_calls(calls, self._visible)
-        return _refine_validated(validated), issues
+        return self._parent.refine_calls(validated), issues
 
     # bits:allow(BCS004): nextloop ToolRuntime.execute protocol signature
     async def execute(
@@ -102,11 +105,26 @@ class ScopedToolRuntime:
 class NikaToolRuntime:
     def __init__(self) -> None:
         self._registry = ToolRegistry()
+        self._refiners: dict[str, SpecRefiner] = {}
         self._sessions: dict[str, SessionIdentity] = {}
         self._wiki_receipts: dict[str, list[str]] = {}
+        self._cloud_locked: set[str] = set()
 
-    def register(self, spec: ToolSpec, handler: ToolHandler) -> None:
+    def register(
+        self,
+        spec: ToolSpec,
+        handler: ToolHandler,
+        *,
+        refiner: SpecRefiner | None = None,
+    ) -> None:
         self._registry.register(spec, handler)
+        if refiner is not None:
+            self._refiners[spec.name] = refiner
+
+    def refine_calls(
+        self, validated: tuple[ValidatedCall, ...]
+    ) -> tuple[ValidatedCall, ...]:
+        return _apply_refiners(validated, self._refiners)
 
     def catalog(self) -> Sequence[ToolSpec]:
         return self._registry.catalog()
@@ -115,7 +133,7 @@ class NikaToolRuntime:
         self, calls: Sequence[ToolCall]
     ) -> tuple[tuple[ValidatedCall, ...], tuple[ValidationIssue, ...]]:
         validated, issues = self._registry.validate(calls)
-        return _refine_validated(validated), issues
+        return self.refine_calls(validated), issues
 
     # bits:allow(BCS004): nextloop ToolRuntime.execute protocol signature
     async def execute(
@@ -150,9 +168,19 @@ class NikaToolRuntime:
         items = self._wiki_receipts.pop(session_id, [])
         return tuple(items)
 
+    def record_cloud_locked(self, session_id: str) -> None:
+        self._cloud_locked.add(session_id)
+
+    def pop_cloud_locked(self, session_id: str) -> bool:
+        if session_id in self._cloud_locked:
+            self._cloud_locked.discard(session_id)
+            return True
+        return False
+
     def cleanup_session(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
         self._wiki_receipts.pop(session_id, None)
+        self._cloud_locked.discard(session_id)
 
     def scope(
         self, identity: SessionIdentity, allowed_tools: frozenset[str]
