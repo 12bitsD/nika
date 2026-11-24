@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import ssl
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -238,4 +238,26 @@ async def run_case_with_retry(
         await asyncio.sleep(0.8 * attempt)
         attempt += 1
         result = await _run_once(feature, case_id, fn)
+    print(
+        f"[{result.outcome.value.upper()}] {result.feature}/{result.case_id}: "
+        f"{result.detail}",
+        flush=True,
+    )
     return result
+
+
+async def run_cases_bounded(
+    specs: Sequence[tuple[str, str, Callable[[], Awaitable[tuple[bool, str]]]]],
+    concurrency: int = 4,
+) -> list[EvalCaseResult]:
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _guarded(
+        feat: str, cid: str, fn: Callable[[], Awaitable[tuple[bool, str]]]
+    ) -> EvalCaseResult:
+        async with sem:
+            return await run_case_with_retry(feat, cid, fn)
+
+    return list(
+        await asyncio.gather(*(_guarded(f, c, fn) for f, c, fn in specs))
+    )

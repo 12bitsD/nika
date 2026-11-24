@@ -30,11 +30,13 @@ from nika.feishu import (
     LiveStatusCardSession,
     RecordedFeishuTransport,
 )
+from nika.feishu_doc import InMemoryFeishuDocStore, register_feishu_doc_tools
 from nika.packs import load_specialist_packs
 from nika.scheduler import ORCHESTRATION_TOOLS, NikaScheduler, SchedulerDeps
 from nika.sessions import register_session_tools
 from nika.tools import NikaToolRuntime
 from nika.wiki import WikiMount, init_git_repo, register_wiki_tools
+from nika.workspace import WorkspaceMount, register_workspace_tools
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -115,10 +117,13 @@ def _make_harness(
         WikiMount(work=tmp_path / "work", personal=tmp_path / "personal"),
     )
     register_session_tools(runtime, store, ledger)
+    register_workspace_tools(runtime, WorkspaceMount(roots=(tmp_path,)))
+    register_feishu_doc_tools(runtime, InMemoryFeishuDocStore())
     packs = load_specialist_packs(
         REPO_ROOT / "specialists",
         available_tools=[
             *(s.name for s in runtime.catalog()),
+            "pocket",
             *ORCHESTRATION_TOOLS,
         ],
         shared_skills_dir=REPO_ROOT / "skills",
@@ -198,6 +203,9 @@ async def test_dual_wiki_search_guard_and_pack_load(tmp_path: Path) -> None:
         REPO_ROOT / "specialists",
         available_tools=[
             *(s.name for s in runtime.catalog()),
+            "grep",
+            "pocket",
+            "feishu_doc",
             "session_ctl",
             *ORCHESTRATION_TOOLS,
         ],
@@ -564,18 +572,30 @@ async def test_live_card_finalized_guard_and_skill_allowlist(
     (extra_skills / "wiki" / "SKILL.md").write_text(
         "---\nname: wiki\ndescription: w\nrequires_tools: [wiki, read]\n---\nbody\n"
     )
+    (extra_skills / "feishu_doc").mkdir(parents=True)
+    (extra_skills / "feishu_doc" / "SKILL.md").write_text(
+        "---\nname: feishu_doc\ndescription: d\nrequires_tools: [feishu_doc]\n---\nbody\n"
+    )
     (extra_skills / "secret_other").mkdir(parents=True)
     (extra_skills / "secret_other" / "SKILL.md").write_text(
         "---\nname: secret_other\ndescription: s\n---\nbody\n"
     )
     packs = load_specialist_packs(
         REPO_ROOT / "specialists",
-        available_tools=("wiki", "read", "session_ctl", "dispatch_task"),
+        available_tools=(
+            "wiki",
+            "read",
+            "grep",
+            "pocket",
+            "feishu_doc",
+            "session_ctl",
+            "dispatch_task",
+        ),
         shared_skills_dir=extra_skills,
     )
     reg = packs[SpecialistId.MAIN].skill_registry
     assert reg is not None
-    assert [s.name for s in reg.list()] == ["wiki"]
+    assert [s.name for s in reg.list()] == ["feishu_doc", "wiki"]
 
 
 async def test_resume_decision_runs_fresh_turn_not_replay(

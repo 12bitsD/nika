@@ -35,6 +35,7 @@ from nika.eval_runner import (
     run_case_with_retry,
 )
 from nika.eval_suites_s1 import run_stage1_evals
+from nika.eval_suites_s2 import run_stage2_evals
 
 
 def _build_probe_registry(
@@ -142,16 +143,16 @@ async def _run_suite(stage: int, env: Mapping[str, str], repo: Path) -> int:
             )
         if stage >= 1:
             results.extend(await run_stage1_evals(provider, repo))
-    lines = [
-        f"[{r.outcome.value.upper()}] {r.feature}/{r.case_id}: {r.detail}"
-        for r in results
-    ]
-    print("\n".join(lines))
+        if stage >= 2:
+            results.extend(await run_stage2_evals(provider, repo))
     if any(r.outcome == EvalOutcomeKind.INFRA_ERROR for r in results):
         return 2
     if any(r.outcome != EvalOutcomeKind.PASSED for r in results):
         return 1
-    print(f"EVAL_STAGE_{stage}_ALL_PASSED ({len(results)}/{len(results)})")
+    print(
+        f"EVAL_STAGE_{stage}_ALL_PASSED ({len(results)}/{len(results)})",
+        flush=True,
+    )
     return 0
 
 

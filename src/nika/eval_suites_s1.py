@@ -13,9 +13,10 @@ from .eval_runner import (
     EvalCaseResult,
     JudgeInput,
     judge_delivery,
-    run_case_with_retry,
+    run_cases_bounded,
 )
 from .feishu import FeishuAdapter, FeishuInboundEvent, RecordedFeishuTransport
+from .feishu_doc import InMemoryFeishuDocStore, register_feishu_doc_tools
 from .packs import load_specialist_packs
 from .scheduler import ORCHESTRATION_TOOLS, NikaScheduler, SchedulerDeps
 from .sessions import register_session_tools
@@ -26,6 +27,7 @@ from .wiki import (
     init_git_repo,
     register_wiki_tools,
 )
+from .workspace import WorkspaceMount, register_workspace_tools
 
 
 @dataclass(frozen=True)
@@ -63,10 +65,13 @@ def _setup_stage1_env(
         runtime, WikiMount(work=work, personal=tmp / "personal")
     )
     register_session_tools(runtime, store, ledger)
+    register_workspace_tools(runtime, WorkspaceMount(roots=(tmp,)))
+    register_feishu_doc_tools(runtime, InMemoryFeishuDocStore())
     packs = load_specialist_packs(
         repo_root / "specialists",
         available_tools=[
             *(s.name for s in runtime.catalog()),
+            "pocket",
             *ORCHESTRATION_TOOLS,
         ],
         shared_skills_dir=repo_root / "skills",
@@ -286,30 +291,32 @@ async def _f3_cross_entry_recall(
 async def run_stage1_evals(
     provider: ModelProvider, repo_root: Path
 ) -> list[EvalCaseResult]:
-    return [
-        await run_case_with_retry(
-            "F1",
-            "F1.1_simple_qa_no_dispatch",
-            lambda: _f1_1_simple_qa(provider, repo_root),
-        ),
-        await run_case_with_retry(
-            "F1",
-            "F1.2_ambiguous_aligns",
-            lambda: _f1_2_ambiguous_aligns(provider, repo_root),
-        ),
-        await run_case_with_retry(
-            "F1",
-            "F1.3_heavy_dispatches_coder",
-            lambda: _f1_3_heavy_dispatch(provider, repo_root),
-        ),
-        await run_case_with_retry(
-            "F2",
-            "F2_dual_wiki_search_upsert_revert",
-            lambda: _f2_wiki_search_upsert_revert(provider, repo_root),
-        ),
-        await run_case_with_retry(
-            "F3",
-            "F3_cross_entry_session_recall",
-            lambda: _f3_cross_entry_recall(provider, repo_root),
-        ),
-    ]
+    return await run_cases_bounded(
+        (
+            (
+                "F1",
+                "F1.1_simple_qa_no_dispatch",
+                lambda: _f1_1_simple_qa(provider, repo_root),
+            ),
+            (
+                "F1",
+                "F1.2_ambiguous_aligns",
+                lambda: _f1_2_ambiguous_aligns(provider, repo_root),
+            ),
+            (
+                "F1",
+                "F1.3_heavy_dispatches_coder",
+                lambda: _f1_3_heavy_dispatch(provider, repo_root),
+            ),
+            (
+                "F2",
+                "F2_dual_wiki_search_upsert_revert",
+                lambda: _f2_wiki_search_upsert_revert(provider, repo_root),
+            ),
+            (
+                "F3",
+                "F3_cross_entry_session_recall",
+                lambda: _f3_cross_entry_recall(provider, repo_root),
+            ),
+        )
+    )

@@ -3,11 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 
 from nextloop import (
     Completed,
     ToolCall,
+    ToolEffect,
+    ToolExecutionMode,
     ToolOutcome,
     ToolRegistry,
     ToolSpec,
@@ -17,6 +20,28 @@ from nextloop import (
 from nextloop.execute.tools import ToolHandler, validate_calls
 
 from .contracts import SessionIdentity
+
+POCKET_READ_METHODS = ("event.list", "todo.list")
+
+
+def _refine_validated(
+    validated: tuple[ValidatedCall, ...],
+) -> tuple[ValidatedCall, ...]:
+    refined: list[ValidatedCall] = []
+    for item in validated:
+        if (
+            item.call.name == "pocket"
+            and item.arguments.get("method") in POCKET_READ_METHODS
+        ):
+            read_spec = replace(
+                item.spec,
+                mode=ToolExecutionMode.PARALLEL,
+                effect=ToolEffect.READ_ONLY,
+            )
+            refined.append(replace(item, spec=read_spec))
+        else:
+            refined.append(item)
+    return tuple(refined)
 
 
 class ScopedToolRuntime:
@@ -40,7 +65,8 @@ class ScopedToolRuntime:
     def validate(
         self, calls: Sequence[ToolCall]
     ) -> tuple[tuple[ValidatedCall, ...], tuple[ValidationIssue, ...]]:
-        return validate_calls(calls, self._visible)
+        validated, issues = validate_calls(calls, self._visible)
+        return _refine_validated(validated), issues
 
     # bits:allow(BCS004): nextloop ToolRuntime.execute protocol signature
     async def execute(
@@ -88,7 +114,8 @@ class NikaToolRuntime:
     def validate(
         self, calls: Sequence[ToolCall]
     ) -> tuple[tuple[ValidatedCall, ...], tuple[ValidationIssue, ...]]:
-        return self._registry.validate(calls)
+        validated, issues = self._registry.validate(calls)
+        return _refine_validated(validated), issues
 
     # bits:allow(BCS004): nextloop ToolRuntime.execute protocol signature
     async def execute(
