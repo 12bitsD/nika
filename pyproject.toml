@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nika"
+version = "0.2.0"
+description = "Minimalist personal superagent harness powered by nextloop"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+  "h11>=0.14,<1",
+  "httpx>=0.27,<1",
+  "jsonschema>=4.23,<5",
+  "nextloop==1.1.0rc1",
+]
+
+[project.scripts]
+nika = "nika.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+nika = ["py.typed"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+cache_dir = ".local/cache/pytest"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 80
+cache-dir = ".local/cache/ruff"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+cache_dir = ".local/cache/mypy"

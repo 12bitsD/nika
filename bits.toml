@@ -1,0 +1,9 @@
+# Bits's Coding Style v0.3.5
+exclude = [
+  "**/.venv/**",
+  "**/.local/**",
+  "**/__pycache__/**",
+  "**/.pytest_cache/**",
+  "**/dist/**",
+  "**/build/**",
+]
