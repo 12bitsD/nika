@@ -1,6 +1,11 @@
-.DS_Store
-.env
-.env.*
-!.env.example
-.secrets/
-data/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.local/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+bits-report.json

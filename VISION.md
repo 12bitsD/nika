@@ -8,7 +8,7 @@ Build a **personal agent and superagent** for one user's real work in Feishu. `n
 
 ## Core design principles
 
-- **Direct kernel reuse, zero pass-through wrappers:** `nika` uses [nextloop](https://github.com/12bitsD/nextloop)'s Turn/Step driver, symmetric `parallel`/`exclusive` barrier truncation, `SQLiteEventStore`, `AppendOnlyContextBuilder`, and `OpenAI/AnthropicProvider` directly, implementing only Feishu Ingress/Delivery and its concrete `ToolRuntime`.
+- **Direct kernel reuse, zero pass-through wrappers:** `nika` uses [nextloop](https://github.com/12bitsD/nextloop)'s Turn/Step driver, symmetric `parallel`/`exclusive` barrier truncation, `SQLiteEventStore`, internal `AgentLoop` context projection/compaction, and `OpenAI/AnthropicProvider` directly, implementing only channel adapters, the deterministic scheduler, and its concrete `ToolRuntime` ([harness.md](docs/design/harness.md)).
 - **Cache-safe memory without a Vector DB or dynamic prefix bloat:**
   - **Static core aliases in `AGENTS.md`:** High-frequency project/person aliases sit in the frozen Session prefix (100% KV cache hit, zero scaling ceiling).
   - **`AgentWiki` (`src/nika/wiki.py` + `skills/wiki/SKILL.md`):** Conditioned-reflex `when` triggers, sub-5ms `ripgrep` search returning YAML frontmatter + Markdown `## H2` line ranges (TOC), and optimistic Git-backed writes with single-line reply receipts (`📝 Wiki: ... · rev <sha>`).

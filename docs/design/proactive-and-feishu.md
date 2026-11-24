@@ -32,5 +32,5 @@ Proactive behavior in `nika` means **reducing the user's cognitive bandwidth**, 
 
 1. **No `lite / pro / promax` budget profiles or `configure_budget` tool:** Replaced by a deterministic **Step 15 Pacing Watermark** injected into Tool Results on long Turns.
 2. **No custom `trace/v1` or `aift/v1` schemas:** `session_events` in SQLite is the trace; `nika export` outputs standard OpenAI JSONL from `surface_op != 'none'` events in 15 lines of Python.
-3. **No pass-through Adapter wrappers:** `nika` directly uses `nextloop`'s `SQLiteEventStore`, `AppendOnlyContextBuilder`, and `OpenAI/AnthropicProvider`, implementing only `FeishuDelivery` and `NikaToolRuntime`.
+3. **No pass-through Adapter wrappers:** `nika` directly uses `nextloop`'s `SQLiteEventStore`, internal `AgentLoop` context projection/compaction, and `OpenAI/AnthropicProvider`, implementing only channel adapters, the deterministic scheduler, and `NikaToolRuntime` ([harness.md](harness.md)).
 4. **Simple Unix trust & 2 container locks:** Feishu `allowlist(open_id)` at ingress, OS `chmod 444` on `AGENTS.md` and `skills/**`, and two in-process locks (`gui_lock`, `wiki_git_lock`).
