@@ -256,7 +256,7 @@ class _FollowupAndHandoffProvider:
         del attempt, cancel
         sys_p = request.messages[0].content or ""
         user_p = request.messages[-1].content or ""
-        is_coder = "Pragmatic" in sys_p or "coder" in sys_p[:80]
+        is_coder = "你是 coder" in sys_p
         self.specialists_called.append("coder" if is_coder else "main")
         if not is_coder:
             if "修代码" in user_p:
