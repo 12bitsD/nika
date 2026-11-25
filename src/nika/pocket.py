@@ -155,7 +155,8 @@ POCKET_TOOL_SPEC = ToolSpec(
         "Call Pocket RPC: event.list(start_date, end_date), "
         "event.set(event_date, start_hhmm, end_hhmm, title, event_id?), "
         "event.delete(event_id), todo.list(), todo.set(text, todo_id?, done?), "
-        "todo.toggle(todo_id), todo.delete(todo_id)."
+        "todo.toggle(todo_id), todo.delete(todo_id). Check event.list before "
+        "event.set; on 409 CLOUD_LOCKED stop without retrying."
     ),
     parameters={
         "type": "object",

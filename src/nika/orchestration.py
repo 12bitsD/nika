@@ -54,8 +54,9 @@ CONSULT_FORBIDDEN_TOOLS = (
 REPORT_TASK_SPEC = ToolSpec(
     name="report_task",
     description=(
-        "Conclude a specialist task with status ('done', 'need_decision', "
-        "'blocked', 'handoff') and concise summary."
+        "Conclude a specialist task ('done', 'need_decision' to pause for "
+        "user approval, 'blocked', or 'handoff' to return out-of-scope "
+        "requests to main) with a concise summary."
     ),
     parameters={
         "type": "object",
@@ -73,8 +74,9 @@ REPORT_TASK_SPEC = ToolSpec(
 CONSULT_PEER_SPEC = ToolSpec(
     name="consult_peer",
     description=(
-        "Request a clean-context blind review from a peer specialist "
-        "passing ONLY the artifact and specific question (depth=1 hard cap)."
+        "Request a read-only clean-context blind review from a peer "
+        "specialist (depth=1 cap). Pass ONLY the artifact and question; "
+        "never include chat history, secrets, or leading bias."
     ),
     parameters={
         "type": "object",

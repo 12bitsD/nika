@@ -287,8 +287,9 @@ def format_read_slice(
 WIKI_TOOL_SPEC = ToolSpec(
     name="wiki",
     description=(
-        "Search (returns H2 line-range TOC), upsert (Git commit), "
-        "or revert entries in 'work' or 'personal' Wiki repos."
+        "Search 'work' or 'personal' Git Wikis for H2 line ranges (then "
+        "read by line range), or upsert/revert entries (preserve returned "
+        "rev <sha> receipt in reply)."
     ),
     parameters={
         "type": "object",

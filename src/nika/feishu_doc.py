@@ -129,7 +129,8 @@ FEISHU_DOC_SPEC = ToolSpec(
     name="feishu_doc",
     description=(
         "Read or edit a Feishu document by H2 section ('read', "
-        "'replace_section', 'append') with mandatory read-back check."
+        "'replace_section', 'append') with read-back check. Omit the "
+        "'## ' heading line in content; leave neighboring sections untouched."
     ),
     parameters={
         "type": "object",
