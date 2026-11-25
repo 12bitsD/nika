@@ -13,6 +13,7 @@ from nextloop import (
     ToolSpec,
 )
 
+from .contracts import TaskKind
 from .tools import NikaToolRuntime, opt_str, req_str
 
 
@@ -191,7 +192,7 @@ def register_feishu_doc_tools(
     doc_locks: dict[str, asyncio.Lock] = {}
 
     async def _handle_doc(
-        args: Mapping[str, Any], _ctx: ToolContext
+        args: Mapping[str, Any], ctx: ToolContext
     ) -> Completed:
         action = req_str(args, "action") or ""
         token = (req_str(args, "doc_token") or "").strip()
@@ -201,6 +202,9 @@ def register_feishu_doc_tools(
             )
         if action == "read":
             return Completed(_format_doc_read(await store.read_doc(token)))
+        ident = runtime.get_identity(ctx.session_id)
+        if ident is not None and ident.kind == TaskKind.CONSULT:
+            return Completed("Consult peer review is read-only", is_error=True)
         heading = req_str(args, "heading")
         content = (
             req_str(args, "content")

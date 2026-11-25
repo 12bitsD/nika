@@ -342,6 +342,7 @@ class NikaLedger:
                     return _row_to_task(found)
             task_id = new_id("task")
             session_id = new_id("sess")
+            ev_id = spec.origin_event_id or spec.parent_task_id
             conn.execute(
                 "INSERT INTO tasks(task_id, session_id, parent_task_id, origin_event_id, "
                 "origin_call_id, thread_key, kind, specialist, depth, status, report_status, "
@@ -351,7 +352,7 @@ class NikaLedger:
                     task_id,
                     session_id,
                     spec.parent_task_id,
-                    spec.origin_event_id,
+                    ev_id,
                     spec.origin_call_id,
                     spec.thread_key,
                     spec.kind.value,
@@ -422,10 +423,12 @@ class NikaLedger:
         with self._write_tx() as conn:
             cur = conn.execute(
                 "UPDATE tasks SET status = ?, updated_at = ? "
-                "WHERE task_id = ? AND status IN (?, ?, ?, ?)",
+                "WHERE (task_id = ? OR parent_task_id = ?) "
+                "AND status IN (?, ?, ?, ?)",
                 (
                     TaskStatus.FAILED.value,
                     now,
+                    task_id,
                     task_id,
                     TaskStatus.QUEUED.value,
                     TaskStatus.RUNNING.value,
@@ -439,6 +442,45 @@ class NikaLedger:
                 (now, task_id),
             )
             return cur.rowcount > 0
+
+    def _insert_handoff_child_locked(self, task: TaskRecord, now: str) -> str:
+        call_id = f"handoff_{task.task_id}"
+        found = self._conn.execute(
+            "SELECT task_id FROM tasks WHERE parent_task_id = ? "
+            "AND origin_call_id = ?",
+            (task.task_id, call_id),
+        ).fetchone()
+        if found is not None:
+            return str(found["task_id"])
+        cid = new_id("task")
+        sid = new_id("sess")
+        ev_id = task.origin_event_id or task.task_id
+        ho_prompt = (
+            f"{task.prompt}\n\n"
+            f"[Handoff from {task.specialist.value}: {task.summary}]"
+        )
+        self._conn.execute(
+            "INSERT INTO tasks(task_id, session_id, parent_task_id, origin_event_id, "
+            "origin_call_id, thread_key, kind, specialist, depth, status, report_status, "
+            "prompt, reply_target_json, summary, final_message_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, ?, ?, NULL, NULL, ?, ?)",
+            (
+                cid,
+                sid,
+                task.task_id,
+                ev_id,
+                call_id,
+                task.thread_key,
+                TaskKind.DISPATCH.value,
+                SpecialistId.MAIN.value,
+                TaskStatus.QUEUED.value,
+                ho_prompt,
+                _encode_target(task.reply_target),
+                now,
+                now,
+            ),
+        )
+        return cid
 
     def _settle_delivered_sync(
         self, task_id: str, final_message_id: str, content: str
@@ -482,11 +524,13 @@ class NikaLedger:
         if next_status != TaskStatus.DONE:
             return
         if task.report_status == ReportStatus.HANDOFF:
-            self._conn.execute(
-                "UPDATE threads SET active_task_id = NULL, last_specialist = NULL, "
-                "updated_at = ? WHERE thread_key = ? AND active_task_id = ?",
-                (now, task.thread_key, task.task_id),
-            )
+            if task.specialist != SpecialistId.MAIN:
+                cid = self._insert_handoff_child_locked(task, now)
+                self._conn.execute(
+                    "UPDATE threads SET active_task_id = ?, last_specialist = NULL, "
+                    "updated_at = ? WHERE thread_key = ?",
+                    (cid, now, task.thread_key),
+                )
             return
         keep_spec = (
             task.specialist.value
@@ -585,8 +629,41 @@ class NikaLedger:
     def _count_handoffs_sync(self, origin_event_id: str) -> int:
         with self._lock:
             row = self._conn.execute(
-                "SELECT COUNT(*) AS cnt FROM tasks WHERE origin_event_id = ? "
+                "SELECT COUNT(*) AS cnt FROM tasks "
+                "WHERE (origin_event_id = ? OR task_id = ?) "
                 "AND report_status = 'handoff'",
-                (origin_event_id,),
+                (origin_event_id, origin_event_id),
             ).fetchone()
             return int(row["cnt"]) if row is not None else 0
+
+    async def get_handoff_child(self, parent_task_id: str) -> TaskRecord | None:
+        return await asyncio.to_thread(
+            self._get_handoff_child_sync, parent_task_id
+        )
+
+    def _get_handoff_child_sync(self, parent_task_id: str) -> TaskRecord | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM tasks WHERE parent_task_id = ? "
+                "AND origin_call_id = ?",
+                (parent_task_id, f"handoff_{parent_task_id}"),
+            ).fetchone()
+            return _row_to_task(row) if row is not None else None
+
+    async def list_open_children(
+        self, parent_task_id: str
+    ) -> tuple[TaskRecord, ...]:
+        return await asyncio.to_thread(
+            self._list_open_children_sync, parent_task_id
+        )
+
+    def _list_open_children_sync(
+        self, parent_task_id: str
+    ) -> tuple[TaskRecord, ...]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM tasks WHERE parent_task_id = ? "
+                "AND status IN ('queued', 'running')",
+                (parent_task_id,),
+            ).fetchall()
+            return tuple(_row_to_task(r) for r in rows)

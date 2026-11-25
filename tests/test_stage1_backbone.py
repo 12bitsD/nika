@@ -203,7 +203,10 @@ async def test_dual_wiki_search_guard_and_pack_load(tmp_path: Path) -> None:
         REPO_ROOT / "specialists",
         available_tools=[
             *(s.name for s in runtime.catalog()),
+            "write",
+            "edit",
             "grep",
+            "bash",
             "pocket",
             "feishu_doc",
             "session_ctl",
@@ -585,11 +588,14 @@ async def test_live_card_finalized_guard_and_skill_allowlist(
         available_tools=(
             "wiki",
             "read",
+            "write",
+            "edit",
             "grep",
+            "bash",
             "pocket",
             "feishu_doc",
             "session_ctl",
-            "dispatch_task",
+            *ORCHESTRATION_TOOLS,
         ),
         shared_skills_dir=extra_skills,
     )

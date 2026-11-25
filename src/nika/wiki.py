@@ -16,6 +16,7 @@ from nextloop import (
     ToolSpec,
 )
 
+from .contracts import SpecialistId, TaskKind
 from .tools import NikaToolRuntime
 
 PROTECTED_LOWER = frozenset(
@@ -29,6 +30,7 @@ HEX_REV_RE = re.compile(r"^[0-9a-fA-F]{6,40}$")
 class WikiMount:
     work: Path
     personal: Path
+    scratch_roots: tuple[Path, ...] = ()
 
     def repo_map(self) -> dict[str, Path]:
         return {
@@ -228,6 +230,19 @@ def _revert_sync(root: Path, repo_name: str, rev: str) -> str:
     return f"📝 Wiki reverted: {repo_name} ({cleaned}) · rev {sha}"
 
 
+def _read_scratch_only(raw_path: str, scratch_roots: Sequence[Path]) -> Path:
+    allowed = [r.expanduser().resolve() for r in scratch_roots]
+    if not allowed:
+        raise PermissionError("No scratch read roots configured for top_talent")
+    if not raw_path.strip():
+        raise PermissionError("Scratch read path must be non-empty")
+    raw = Path(raw_path).expanduser()
+    candidate = (raw if raw.is_absolute() else (allowed[0] / raw)).resolve()
+    if any(candidate == root or root in candidate.parents for root in allowed):
+        return candidate
+    raise PermissionError(f"top_talent read restricted to scratch: {raw_path}")
+
+
 def _read_target_path(
     raw_path: str, mount: WikiMount, extra_roots: Sequence[Path]
 ) -> Path:
@@ -344,6 +359,32 @@ def _optional_int(args: Mapping[str, Any], key: str) -> int | None:
     return int(val) if val is not None else None
 
 
+def _make_read_handler(
+    runtime: NikaToolRuntime,
+    mount: WikiMount,
+    extra_read_roots: Sequence[Path],
+) -> Any:
+    def _handle_read(args: Mapping[str, Any], ctx: ToolContext) -> Completed:
+        raw_path = args.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            return Completed("path must be a non-empty string", is_error=True)
+        ident = runtime.get_identity(ctx.session_id)
+        target = (
+            _read_scratch_only(raw_path, mount.scratch_roots)
+            if ident is not None and ident.specialist == SpecialistId.TOP_TALENT
+            else _read_target_path(raw_path, mount, extra_read_roots)
+        )
+        return Completed(
+            format_read_slice(
+                target,
+                _optional_int(args, "start_line"),
+                _optional_int(args, "end_line"),
+            )
+        )
+
+    return _handle_read
+
+
 def register_wiki_tools(
     runtime: NikaToolRuntime,
     mount: WikiMount,
@@ -364,6 +405,9 @@ def register_wiki_tools(
         repos = mount.repo_map()
         if repo_name not in repos:
             return Completed("repo must be 'work' or 'personal'", is_error=True)
+        ident = runtime.get_identity(ctx.session_id)
+        if ident is not None and ident.kind == TaskKind.CONSULT:
+            return Completed("Consult peer review is read-only", is_error=True)
         async with wiki_lock:
             receipt = await _run_wiki_write(
                 action, repo_name, repos[repo_name], args
@@ -373,18 +417,7 @@ def register_wiki_tools(
         runtime.record_wiki_receipt(ctx.session_id, receipt)
         return Completed(receipt)
 
-    def _handle_read(args: Mapping[str, Any], _ctx: ToolContext) -> Completed:
-        raw_path = args.get("path")
-        if not isinstance(raw_path, str) or not raw_path.strip():
-            return Completed("path must be a non-empty string", is_error=True)
-        target = _read_target_path(raw_path, mount, extra_read_roots)
-        return Completed(
-            format_read_slice(
-                target,
-                _optional_int(args, "start_line"),
-                _optional_int(args, "end_line"),
-            )
-        )
-
     runtime.register(WIKI_TOOL_SPEC, _handle_wiki)
-    runtime.register(READ_TOOL_SPEC, _handle_read)
+    runtime.register(
+        READ_TOOL_SPEC, _make_read_handler(runtime, mount, extra_read_roots)
+    )

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from nextloop import ModelProvider, SQLiteEventStore
 
+from .contracts import SpecialistId
 from .db import NikaLedger
 from .eval_runner import (
     EvalCaseResult,
@@ -67,7 +68,7 @@ def _setup_stage1_env(
     register_session_tools(runtime, store, ledger)
     register_workspace_tools(runtime, WorkspaceMount(roots=(tmp,)))
     register_feishu_doc_tools(runtime, InMemoryFeishuDocStore())
-    packs = load_specialist_packs(
+    all_packs = load_specialist_packs(
         repo_root / "specialists",
         available_tools=[
             *(s.name for s in runtime.catalog()),
@@ -76,6 +77,7 @@ def _setup_stage1_env(
         ],
         shared_skills_dir=repo_root / "skills",
     )
+    packs = {SpecialistId.MAIN: all_packs[SpecialistId.MAIN]}
     sched = NikaScheduler(
         SchedulerDeps(
             ledger=ledger,

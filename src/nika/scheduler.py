@@ -47,11 +47,15 @@ from .feishu import (
     LiveStatusCardSession,
     PreviewProgressBridge,
 )
+from .orchestration import (
+    CONSULT_FORBIDDEN_TOOLS,
+    register_specialist_orchestration,
+)
 from .packs import SpecialistPack
 from .pocket import PocketCallbackNotice
 from .tools import NikaToolRuntime
 
-ORCHESTRATION_TOOLS = ("dispatch_task",)
+ORCHESTRATION_TOOLS = ("dispatch_task", "report_task", "consult_peer")
 
 
 @dataclass
@@ -206,6 +210,38 @@ class NikaScheduler:
             self._deps.runtime.register(
                 DISPATCH_TOOL_SPEC, self._handle_dispatch_tool
             )
+        register_specialist_orchestration(
+            self._deps.runtime,
+            self._deps.ledger,
+            self._deps.packs,
+            self._run_consult_child,
+        )
+
+    async def _run_consult_child(self, child: TaskRecord) -> str | None:
+        try:
+            await self._run_task(child, None, child.task_id)
+        except asyncio.CancelledError:
+            await self._deps.ledger.cancel_task_if_open(child.task_id)
+            raise
+        settled = await self._deps.ledger.get_task(child.task_id)
+        if (
+            settled is None
+            or settled.status != TaskStatus.DONE
+            or not settled.summary
+        ):
+            return None
+        return settled.summary
+
+    async def _spawn_handoff_to_main(self, settled: TaskRecord) -> None:
+        if (
+            settled.kind == TaskKind.CONSULT
+            or settled.report_status != ReportStatus.HANDOFF
+            or settled.specialist == SpecialistId.MAIN
+        ):
+            return
+        rerouted = await self._deps.ledger.get_handoff_child(settled.task_id)
+        if rerouted is not None and rerouted.status == TaskStatus.QUEUED:
+            self._spawn_runner(rerouted, None, rerouted.task_id)
 
     async def _resolve_dispatch_target(
         self, parent: TaskRecord, spec_id: SpecialistId, goal: str
@@ -339,6 +375,16 @@ class NikaScheduler:
         ]
         return tuple(hydrated[-6:])
 
+    @staticmethod
+    def _allowed_tools_for(
+        task: TaskRecord, pack: SpecialistPack
+    ) -> frozenset[str]:
+        if task.kind != TaskKind.CONSULT:
+            return pack.tools
+        return frozenset(
+            t for t in pack.tools if t not in CONSULT_FORBIDDEN_TOOLS
+        )
+
     def _assemble_runtime_and_config(
         self,
         task: TaskRecord,
@@ -352,7 +398,9 @@ class NikaScheduler:
             kind=task.kind,
             depth=task.depth,
         )
-        scoped: ToolRuntime = self._deps.runtime.scope(identity, pack.tools)
+        scoped: ToolRuntime = self._deps.runtime.scope(
+            identity, self._allowed_tools_for(task, pack)
+        )
         loop_cfg = replace(pack.loop_config, bootstrap_messages=prior_msgs)
         if pack.skill_registry is not None:
             skill_reg = ToolRegistry()
@@ -394,6 +442,17 @@ class NikaScheduler:
             return base
         return "\n\n".join([base, *(text for _, text in queued)])
 
+    async def _start_task_bridge(
+        self, task: TaskRecord
+    ) -> PreviewProgressBridge | None:
+        bridge = self._make_progress_bridge(task)
+        if bridge is not None:
+            self._bridges[task.session_id] = bridge
+            await bridge.card.emit_progress(
+                f"⏳ `{task.specialist.value}` thinking..."
+            )
+        return bridge
+
     async def _run_task(
         self,
         task: TaskRecord,
@@ -412,19 +471,15 @@ class NikaScheduler:
         await self._deps.ledger.set_task_status(
             task.task_id, TaskStatus.RUNNING
         )
-        bridge = self._make_progress_bridge(task)
-        if bridge is not None:
-            self._bridges[task.session_id] = bridge
-            await bridge.card.emit_progress(
-                f"⏳ `{task.specialist.value}` thinking..."
-            )
-        tools, loop_cfg = self._assemble_runtime_and_config(
-            task,
-            pack,
-            await self._hydrate_prior_messages(
+        bridge = await self._start_task_bridge(task)
+        prior = (
+            ()
+            if task.kind == TaskKind.CONSULT
+            else await self._hydrate_prior_messages(
                 task.thread_key, task.session_id
-            ),
+            )
         )
+        tools, loop_cfg = self._assemble_runtime_and_config(task, pack, prior)
         ctx = TurnContext(
             session_id=task.session_id,
             initial_input=self._drain_initial_prompt(task, resume_input),
@@ -438,6 +493,9 @@ class NikaScheduler:
         )
         outcome = await self._execute_turn_safely(task.task_id, ctx, bridge)
         await self._finalize_non_delivered_outcome(task.task_id, outcome.status)
+        latest = await self._deps.ledger.get_task(task.task_id)
+        if latest is not None:
+            await self._spawn_handoff_to_main(latest)
 
     async def _execute_turn_safely(
         self,
@@ -490,6 +548,9 @@ class NikaScheduler:
         active = await self._deps.ledger.get_active_task(thread_key)
         if active is None:
             return False
+        children = await self._deps.ledger.list_open_children(active.task_id)
+        for ch in children:
+            await self._loop.cancel(ch.session_id, "user_stop")
         cancelled = await self._loop.cancel(active.session_id, "user_stop")
         if not cancelled:
             runner = self._runners.get(active.task_id)

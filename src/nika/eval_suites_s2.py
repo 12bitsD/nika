@@ -150,11 +150,18 @@ async def _f4_1_pocket_conflict_and_create(
                 provider,
                 JudgeInput(
                     query=q,
-                    evidence=f"Existing 14:00-15:00 架构评审; created {created[0]}",
+                    evidence=(
+                        f"Pocket 2026-11-26 events={list(srv.events.values())}; "
+                        f"14:00-15:00 occupied by ev_fixed (架构评审), "
+                        f"15:30-16:30 had no conflict and created {created[0]}"
+                    ),
                     delivered_text=reply,
                 ),
             )
-            return verdict.passed, f"created={created[0]['title']}"
+            return (
+                verdict.passed,
+                f"created={created[0]['title']} judge={verdict.reason}",
+            )
         finally:
             await env.close()
 
@@ -184,8 +191,10 @@ async def _f4_2_pocket_cloud_locked(
                 JudgeInput(
                     query=q,
                     evidence=(
-                        "Pocket returned 409 CLOUD_LOCKED: Todo 'td_alarm_0730' "
-                        f"is locked on phone device; todo.list state={todo_state}. "
+                        "Pocket returned 409 CLOUD_LOCKED on single todo.toggle "
+                        "attempt (agent did not retry); "
+                        f"Todo 'td_alarm_0730' is locked on phone device; "
+                        f"todo.list state={todo_state}. "
                         "User may unlock or modify it on the phone device."
                     ),
                     delivered_text=reply,
