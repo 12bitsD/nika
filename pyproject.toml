@@ -43,7 +43,9 @@ cache-dir = ".local/cache/ruff"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC", "SIM"]
-ignore = ["E501"]
+# L0/L1 deduplication contract: SIM102 (collapsible-if) & SIM114 (identical arms)
+# are owned by Bits L1 (BCS005/BCS016).
+ignore = ["E501", "SIM102", "SIM114"]
 
 [tool.mypy]
 python_version = "3.11"

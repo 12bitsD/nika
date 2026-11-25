@@ -352,7 +352,6 @@ class LocalPocketContractServer:
         todo_id: str,
         text: str,
         *,
-        # bits:allow(BCS004): test contract fixture helper
         locked: bool = False,
     ) -> None:
         self.todos[todo_id] = {

@@ -1,4 +1,4 @@
-# Bits's Coding Style v0.3.5
+# Bits's Coding Style v0.5.0
 exclude = [
   "**/.venv/**",
   "**/.local/**",
@@ -7,3 +7,5 @@ exclude = [
   "**/dist/**",
   "**/build/**",
 ]
+# Additional IO call globs for bits:spec(pure) taint checks (BCS017):
+# io_sources = ["Client.request", "db.query"]

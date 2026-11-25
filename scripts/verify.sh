@@ -5,11 +5,17 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 VENV_BIN="${NIKA_VENV_BIN:-/Users/user/Projects/nextloop/.venv/bin}"
-BITS_BIN="${BITS_BIN:-/Users/user/.cargo/bin/bits}"
+if [[ -z "${BITS_BIN:-}" ]]; then
+  if [[ -x "/Users/user/Desktop/Projects/bits-style/target/release/bits" ]]; then
+    BITS_BIN="/Users/user/Desktop/Projects/bits-style/target/release/bits"
+  else
+    BITS_BIN="/Users/user/.cargo/bin/bits"
+  fi
+fi
 export PYTHONPATH="$ROOT/src:/Users/user/Projects/nextloop/src${PYTHONPATH:+:$PYTHONPATH}"
 
 echo "==> [1/5] bits style check"
-"$BITS_BIN" style check src tests scripts
+"$BITS_BIN" style check src tests scripts/check_hygiene.py scripts/eval.py
 
 echo "==> [2/5] ruff check"
 "$VENV_BIN/ruff" check src tests scripts

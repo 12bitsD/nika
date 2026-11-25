@@ -167,7 +167,6 @@ def main() -> int:
     parser.add_argument("--stage", type=int, default=0)
     args = parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
-    # bits:allow(BCS011): CLI entrypoint reads process environment
     env = dict(os.environ)
     return asyncio.run(_run_suite(args.stage, env, repo))
 

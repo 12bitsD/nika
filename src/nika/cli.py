@@ -409,7 +409,6 @@ def run_cli(
     argv: Sequence[str] | None = None,
     env_override: Mapping[str, str] | None = None,
 ) -> int:
-    # bits:allow(BCS011): CLI entrypoint reads process environment
     env = dict(os.environ) if env_override is None else dict(env_override)
     ns = _build_parser(env).parse_args(list(argv) if argv is not None else None)
     if ns.cmd == "check":

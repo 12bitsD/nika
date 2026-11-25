@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import time
 from collections.abc import Mapping
 from contextlib import suppress
@@ -18,6 +19,8 @@ from .pocket import PocketAdapter, PocketWebhookRequest
 MAX_BODY_BYTES = 1_048_576
 READ_TIMEOUT_SECONDS = 15.0
 SIGNATURE_MAX_SKEW_SECONDS = 300
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -225,6 +228,41 @@ def _write_http_reply(
     writer.write(head + raw_out)
 
 
+async def _next_http_event(
+    conn: h11.Connection, reader: asyncio.StreamReader
+) -> h11.Event | None:
+    while True:
+        event = conn.next_event()
+        if isinstance(event, h11.Event):
+            return event
+        if event is not h11.NEED_DATA:
+            return None
+        data = await asyncio.wait_for(
+            reader.read(16384), timeout=READ_TIMEOUT_SECONDS
+        )
+        conn.receive_data(data)
+        if not data:
+            return None
+
+
+async def _read_body_chunks(
+    conn: h11.Connection, reader: asyncio.StreamReader
+) -> tuple[bytes | None, int]:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        event = await _next_http_event(conn, reader)
+        if event is None:
+            return None, 400
+        if isinstance(event, h11.EndOfMessage):
+            return b"".join(chunks), 200
+        if isinstance(event, h11.Data):
+            total += len(event.data)
+            if total > MAX_BODY_BYTES:
+                return None, 413
+            chunks.append(bytes(event.data))
+
+
 class NikaHttpServer:
     def __init__(self, deps: HttpDaemonDeps) -> None:
         self._deps = deps
@@ -247,42 +285,27 @@ class NikaHttpServer:
     async def _read_request(
         self, conn: h11.Connection, reader: asyncio.StreamReader
     ) -> tuple[_RawHttpRequest | None, int]:
-        req_evt: h11.Request | None = None
-        chunks: list[bytes] = []
-        total = 0
-        while True:
-            try:
-                event = conn.next_event()
-            except h11.RemoteProtocolError:
+        try:
+            first = await _next_http_event(conn, reader)
+            if first is None:
+                return None, 0
+            if not isinstance(first, h11.Request):
                 return None, 400
-            if event is h11.NEED_DATA:
-                data = await asyncio.wait_for(
-                    reader.read(16384), timeout=READ_TIMEOUT_SECONDS
-                )
-                conn.receive_data(data)
-                if not data:
-                    return None, (0 if req_evt is None else 400)
-                continue
-            if isinstance(event, h11.Request):
-                req_evt = event
-            elif isinstance(event, h11.Data):
-                total += len(event.data)
-                if total > MAX_BODY_BYTES:
-                    return None, 413
-                chunks.append(bytes(event.data))
-            elif isinstance(event, h11.EndOfMessage):
-                break
-        assert req_evt is not None
+            body, err_code = await _read_body_chunks(conn, reader)
+        except h11.RemoteProtocolError:
+            return None, 400
+        if body is None:
+            return None, err_code
         hdrs = {
             k.decode("latin1").lower(): v.decode("latin1")
-            for k, v in req_evt.headers
+            for k, v in first.headers
         }
         return (
             _RawHttpRequest(
-                req_evt.method.decode("ascii"),
-                req_evt.target.decode("ascii"),
+                first.method.decode("ascii"),
+                first.target.decode("ascii"),
                 hdrs,
-                b"".join(chunks),
+                body,
             ),
             200,
         )
@@ -353,8 +376,10 @@ class NikaHttpServer:
             return err_code, {"error": err_name}
         try:
             return await self._route_request(req)
-        # bits:allow(BCS013): translate unexpected handler error to HTTP 500
         except Exception:
+            logger.exception(
+                "Unhandled HTTP error on %s %s", req.method, req.target
+            )
             return 500, {"error": "internal_error"}
 
     async def _handle_conn(

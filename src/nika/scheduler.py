@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -56,6 +57,8 @@ from .pocket import PocketCallbackNotice
 from .tools import NikaToolRuntime
 
 ORCHESTRATION_TOOLS = ("dispatch_task", "report_task", "consult_peer")
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -512,16 +515,17 @@ class NikaScheduler:
     ) -> Any:
         try:
             return await self._loop.run(ctx)
-        # bits:allow(BCS013): mark FAILED before re-raising
         except Exception:
             await self._deps.ledger.set_task_status(task_id, TaskStatus.FAILED)
             raise
         finally:
             self._bridges.pop(ctx.session_id, None)
             self._pending_steers.pop(task_id, None)
-            if bridge is not None:
-                await bridge.flush()
-            self._deps.runtime.cleanup_session(ctx.session_id)
+            try:
+                if bridge is not None:
+                    await bridge.flush()
+            finally:
+                self._deps.runtime.cleanup_session(ctx.session_id)
 
     def _make_progress_bridge(
         self, task: TaskRecord
@@ -559,8 +563,12 @@ class NikaScheduler:
                 TaskDeliveryOwner(task, self._deps, None),
                 force=True,
             )
-        # bits:allow(BCS013): isolate corrupted session during boot recovery
         except Exception:
+            logger.exception(
+                "Failed to recover running task %s (session %s)",
+                task.task_id,
+                task.session_id,
+            )
             await self._deps.ledger.set_task_status(
                 task.task_id, TaskStatus.FAILED
             )
