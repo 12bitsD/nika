@@ -10,6 +10,7 @@ tools = [
   "feishu_doc",
   "session_ctl",
   "dispatch_task",
+  "consult_peer",
 ]
 skills = ["wiki", "feishu_doc"]
 

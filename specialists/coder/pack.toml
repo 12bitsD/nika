@@ -1,0 +1,19 @@
+schema = "nika.specialist/v1"
+name = "coder"
+min_nextloop = "1.1.0rc1"
+event_schema = "1.1"
+tools = [
+  "read",
+  "write",
+  "edit",
+  "grep",
+  "bash",
+  "consult_peer",
+  "report_task",
+]
+skills = []
+
+[loop]
+context_window = 128000
+output_reserve = 4096
+max_steps = 28
