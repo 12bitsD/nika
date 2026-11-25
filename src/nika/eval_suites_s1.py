@@ -147,7 +147,11 @@ async def _f1_2_ambiguous_aligns(
                 provider,
                 JudgeInput(
                     query=q,
-                    evidence="No target or direction given; zero writes.",
+                    evidence=(
+                        "No target or direction given; zero tools or writes executed. "
+                        "Agent manages Wiki (work/personal), Pocket, Feishu docs, "
+                        "and code configs, and refrained from direct edits."
+                    ),
                     delivered_text=reply,
                     rubric=(
                         "Must ask concise clarification or options without "
@@ -155,7 +159,7 @@ async def _f1_2_ambiguous_aligns(
                     ),
                 ),
             )
-            return verdict.passed, f"reply={reply[:90]!r}"
+            return verdict.passed, f"judge={verdict.reason} | {reply[:60]!r}"
         finally:
             await env.close()
 

@@ -667,3 +667,26 @@ class NikaLedger:
                 (parent_task_id,),
             ).fetchall()
             return tuple(_row_to_task(r) for r in rows)
+
+    async def list_unfinished_tasks(self) -> tuple[TaskRecord, ...]:
+        return await asyncio.to_thread(self._list_unfinished_sync)
+
+    def _list_unfinished_sync(self) -> tuple[TaskRecord, ...]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM tasks WHERE status IN ('queued', 'running') "
+                "ORDER BY created_at ASC"
+            ).fetchall()
+            return tuple(_row_to_task(r) for r in rows)
+
+    async def list_settled_tasks(self) -> tuple[TaskRecord, ...]:
+        return await asyncio.to_thread(self._list_settled_sync)
+
+    def _list_settled_sync(self) -> tuple[TaskRecord, ...]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM tasks WHERE status IN "
+                "('done', 'need_decision', 'blocked', 'failed') "
+                "ORDER BY created_at ASC"
+            ).fetchall()
+            return tuple(_row_to_task(r) for r in rows)

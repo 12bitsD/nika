@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nika.daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/nika/.venv/bin/nika</string>
+    <string>serve</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>8787</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/opt/nika</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NIKA_DB_PATH</key>
+    <string>/opt/nika/.local/nika.db</string>
+    <key>NIKA_PROVIDER_CONFIG</key>
+    <string>/opt/nika/.local/eval_provider.json</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>StandardOutPath</key>
+  <string>/opt/nika/.local/logs/nika.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/opt/nika/.local/logs/nika.err.log</string>
+</dict>
+</plist>

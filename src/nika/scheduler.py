@@ -71,6 +71,13 @@ class SchedulerDeps:
     clock: Callable[[], float] = time.monotonic
 
 
+@dataclass(frozen=True)
+class RecoverySummary:
+    redelivered: int
+    failed_interrupted: int
+    resumed_queued: int
+
+
 def _append_missing_receipts(text: str, receipts: Sequence[str]) -> str:
     missing = [rec for rec in receipts if rec not in text]
     if not missing:
@@ -543,6 +550,78 @@ class NikaScheduler:
             await self._deps.ledger.set_task_status(task_id, TaskStatus.BLOCKED)
         elif status in (TurnStatus.CANCELLED, TurnStatus.FAILED):
             await self._deps.ledger.set_task_status(task_id, TaskStatus.FAILED)
+
+    async def _recover_running_task(self, task: TaskRecord) -> tuple[int, int]:
+        try:
+            outcome = await self._loop.recover(
+                task.session_id,
+                self._deps.store,
+                TaskDeliveryOwner(task, self._deps, None),
+                force=True,
+            )
+        # bits:allow(BCS013): isolate corrupted session during boot recovery
+        except Exception:
+            await self._deps.ledger.set_task_status(
+                task.task_id, TaskStatus.FAILED
+            )
+            return 0, 1
+        if outcome.delivered_final_ids:
+            return 1, 0
+        if outcome.delivery_unknown_final_ids:
+            await self._deps.ledger.set_task_status(
+                task.task_id, TaskStatus.BLOCKED
+            )
+            return 0, 0
+        await self._deps.ledger.set_task_status(task.task_id, TaskStatus.FAILED)
+        return 0, 1
+
+    async def _resume_or_fail_queued(self, task: TaskRecord) -> int:
+        if (
+            task.kind == TaskKind.CONSULT
+            or task.specialist not in self._deps.packs
+        ):
+            await self._deps.ledger.set_task_status(
+                task.task_id, TaskStatus.FAILED
+            )
+            return 0
+        self._spawn_runner(task, None, task.origin_event_id or task.task_id)
+        return 1
+
+    async def _fail_if_orphan_consult(self, task: TaskRecord) -> int:
+        if task.kind != TaskKind.CONSULT:
+            return 0
+        await self._deps.ledger.set_task_status(task.task_id, TaskStatus.FAILED)
+        return 1
+
+    async def recover(self) -> RecoverySummary:
+        initial = await self._deps.ledger.list_unfinished_tasks()
+        running = [t for t in initial if t.status == TaskStatus.RUNNING]
+        run_counts = [await self._recover_running_task(t) for t in running]
+        redelivered = sum(r for r, _ in run_counts)
+        failed_int = sum(f for _, f in run_counts)
+        remaining = await self._deps.ledger.list_unfinished_tasks()
+        queued = [t for t in remaining if t.status == TaskStatus.QUEUED]
+        resumed = sum([await self._resume_or_fail_queued(t) for t in queued])
+        return RecoverySummary(
+            redelivered=redelivered,
+            failed_interrupted=failed_int,
+            resumed_queued=resumed,
+        )
+
+    async def recover_offline(self) -> RecoverySummary:
+        initial = await self._deps.ledger.list_unfinished_tasks()
+        running = [t for t in initial if t.status == TaskStatus.RUNNING]
+        run_counts = [await self._recover_running_task(t) for t in running]
+        redelivered = sum(r for r, _ in run_counts)
+        failed_int = sum(f for _, f in run_counts)
+        remaining = await self._deps.ledger.list_unfinished_tasks()
+        queued = [t for t in remaining if t.status == TaskStatus.QUEUED]
+        orphan_c = sum([await self._fail_if_orphan_consult(t) for t in queued])
+        return RecoverySummary(
+            redelivered=redelivered,
+            failed_interrupted=failed_int + orphan_c,
+            resumed_queued=0,
+        )
 
     async def stop(self, thread_key: str) -> bool:
         active = await self._deps.ledger.get_active_task(thread_key)

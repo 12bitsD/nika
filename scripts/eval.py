@@ -37,6 +37,7 @@ from nika.eval_runner import (
 from nika.eval_suites_s1 import run_stage1_evals
 from nika.eval_suites_s2 import run_stage2_evals
 from nika.eval_suites_s3 import run_stage3_evals
+from nika.eval_suites_s4 import run_stage4_evals
 
 
 def _build_probe_registry(
@@ -148,6 +149,8 @@ async def _run_suite(stage: int, env: Mapping[str, str], repo: Path) -> int:
             results.extend(await run_stage2_evals(provider, repo))
         if stage >= 3:
             results.extend(await run_stage3_evals(provider, repo))
+        if stage >= 4:
+            results.extend(await run_stage4_evals(provider, repo))
     if any(r.outcome == EvalOutcomeKind.INFRA_ERROR for r in results):
         return 2
     if any(r.outcome != EvalOutcomeKind.PASSED for r in results):

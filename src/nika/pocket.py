@@ -152,8 +152,10 @@ class PocketRpcClient:
 POCKET_TOOL_SPEC = ToolSpec(
     name="pocket",
     description=(
-        "Call Pocket calendar/todo RPC ('event.list', 'event.set', "
-        "'event.delete', 'todo.list', 'todo.set', 'todo.toggle', 'todo.delete')."
+        "Call Pocket RPC: event.list(start_date, end_date), "
+        "event.set(event_date, start_hhmm, end_hhmm, title, event_id?), "
+        "event.delete(event_id), todo.list(), todo.set(text, todo_id?, done?), "
+        "todo.toggle(todo_id), todo.delete(todo_id)."
     ),
     parameters={
         "type": "object",
@@ -253,16 +255,18 @@ class PocketAdapter:
     def bind_scheduler(self, scheduler: StopAndIngestTarget) -> None:
         self._scheduler = scheduler
 
-    def _verify_bearer(self, auth_header: str) -> bool:
+    def verify_bearer(self, auth_header: str) -> bool:
         if not self._secret or not auth_header.startswith("Bearer "):
             return False
         provided = auth_header[7:].strip()
-        return hmac.compare_digest(provided, self._secret)
+        return hmac.compare_digest(
+            provided.encode("utf-8"), self._secret.encode("utf-8")
+        )
 
     async def handle_webhook(
         self, auth_header: str, req: PocketWebhookRequest
     ) -> bool:
-        if not self._verify_bearer(auth_header) or self._scheduler is None:
+        if not self.verify_bearer(auth_header) or self._scheduler is None:
             return False
         if not _valid_callback_url(
             req.result_callback_url, self._allowed_origin
@@ -475,6 +479,17 @@ class LocalPocketContractServer:
                 }
             }
         if method == "event.set":
+            req_keys = ("event_date", "start_hhmm", "end_hhmm", "title")
+            if not all(isinstance(params.get(k), str) for k in req_keys):
+                return 400, {
+                    "error": {
+                        "code": "INVALID_PARAMS",
+                        "message": (
+                            "event.set requires event_date, start_hhmm, "
+                            "end_hhmm, title"
+                        ),
+                    }
+                }
             eid = str(params.get("event_id") or f"ev_{len(self.events) + 1}")
             self.events[eid] = {
                 "event_id": eid,
